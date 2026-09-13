@@ -6,10 +6,11 @@ Downstream (buzz-acp → herdr-acp): every JSON-RPC line is forwarded unchanged,
 `session/prompt`, whose text is reduced to just the humans' messages ("josh: hello") so the
 agent burns no context on Buzz's routing boilerplate.
 Upstream (herdr-acp → buzz-acp): every line is forwarded unchanged so buzz-acp keeps its typing
-indicator and observer feed; on the side, tool calls and the final reply are posted to the
-channel as the agent, via the `buzz` CLI (env comes from bin/herdr-buzz).
+indicator and observer feed; on the side, everything the pane does (humans typing in it, the
+agent's text, tool calls) is posted to the channel as the agent via the `buzz` CLI, so the
+channel and the pane are one shared session. Env comes from bin/herdr-buzz.
 
-Edit the templates below to change what gets posted. `--tools none` posts only the reply.
+Edit the templates below to change what gets posted. `--tools none` skips tool calls.
 """
 
 import argparse
@@ -25,7 +26,8 @@ import threading
 TOOL_START = "▸ {title}"
 TOOL_DONE = "✓ {title}"
 TOOL_FAIL = "✗ {title}"
-REPLY = "{text}"
+AGENT_TEXT = "{text}"          # every assistant text block, as it appears
+PANE_INPUT = "⌨ {text}"        # a human typing directly in the pane
 TITLE_MAX = 120
 
 # buzz-acp's prompt, one block per event:  "From: josh (npub…, hex: …)\n…\nContent: <text>\nTags: […]"
@@ -41,8 +43,14 @@ def reduce_prompt(blocks: list[str]) -> list[str]:
     return ["\n\n".join(f"{who}: {what.strip()}" for who, what in events)]
 
 
-def render(update: dict, titles: dict) -> str | None:
+def render(update: dict, titles: dict, tools: bool = True) -> str | None:
     kind = update.get("sessionUpdate")
+    if kind == "agent_message_chunk":
+        return AGENT_TEXT.format(text=update["content"].get("text", ""))
+    if kind == "user_message_chunk":
+        return PANE_INPUT.format(text=update["content"].get("text", ""))
+    if not tools:
+        return None
     if kind == "tool_call":
         title = (update.get("title") or "tool")[:TITLE_MAX]
         titles[update.get("toolCallId")] = title
@@ -97,7 +105,7 @@ def downstream(src, dst, raw: bool) -> None:
 
 
 def upstream(src, dst, poster: Poster, tools: bool) -> None:
-    titles, last_text = {}, ""
+    titles = {}
     for line in src:
         dst.write(line)
         dst.flush()
@@ -106,17 +114,9 @@ def upstream(src, dst, poster: Poster, tools: bool) -> None:
         except ValueError:
             continue
         if msg.get("method") == "session/update":
-            u = msg["params"]["update"]
-            if u.get("sessionUpdate") == "agent_message_chunk":
-                last_text = u["content"].get("text", "")
-            elif tools:
-                out = render(u, titles)
-                if out:
-                    poster.post(out)
-        elif "result" in msg and msg["result"] and "stopReason" in msg["result"]:
-            if msg["result"]["stopReason"] == "end_turn" and last_text:
-                poster.post(REPLY.format(text=last_text))
-            last_text, titles = "", {}
+            out = render(msg["params"]["update"], titles, tools)
+            if out:
+                poster.post(out)
 
 
 def main() -> None:
@@ -149,6 +149,9 @@ def _selfcheck() -> None:
     assert render({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "completed"}, titles) == "✓ Bash: pwd"
     assert render({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "in_progress"}, titles) is None
     assert render({"sessionUpdate": "agent_thought_chunk"}, titles) is None
+    assert render({"sessionUpdate": "agent_message_chunk", "content": {"text": "hi"}}, titles) == "hi"
+    assert render({"sessionUpdate": "user_message_chunk", "content": {"text": "fix it"}}, titles) == "⌨ fix it"
+    assert render({"sessionUpdate": "tool_call", "toolCallId": "t2", "title": "x"}, titles, tools=False) is None
     print("tee ok")
 
 

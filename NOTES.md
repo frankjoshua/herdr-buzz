@@ -7,6 +7,9 @@
   (`▸ Bash: pwd` / `✓ Bash: pwd`) and the final assistant text to the channel as the agent.
   Templates are module-level strings in tee.py; `--tools none` posts only the reply;
   `--raw-prompt` forwards buzz-acp's prompt untouched.
+- **Everything in the pane mirrors to the channel** (2026-09-13): `⌨ <text>` when a human types in
+  the pane, every assistant text block as it appears, `▸`/`✓`/`✗` per tool call. Verified both
+  directions on the real relay. buzz-acp accepts updates between turns without complaint.
 - buzz-acp still sees the full ACP stream, so typing indicator and observer feed are unchanged.
 - Caveat: a Claude session that previously received Buzz instructions keeps replying itself
   from memory. Start a fresh session when switching a pane to the tee.
