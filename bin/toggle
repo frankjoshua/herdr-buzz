@@ -35,11 +35,11 @@ else                                                      # make sure it's in th
   env -u BUZZ_AUTH_TAG BUZZ_PRIVATE_KEY="$BUZZ_OWNER_NSEC" buzz channels add-member --channel "$channel" --pubkey "$BUZZ_PUBLIC_KEY" --role bot >/dev/null 2>&1 || true
 fi
 
-bridge=$(herdr pane split "$pane" --direction down --ratio 0.2 --cwd "$here" \
+bridge=$(herdr pane split "$pane" --direction down --ratio 0.95 --cwd "$here" \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')
 herdr pane rename "$bridge" "buzz: #$name" >/dev/null 2>&1 || true
 flags=$(cat "$HOME/.config/buzz-acp/herdr-buzz.flags" 2>/dev/null || true)   # e.g. --respond-to anyone
-herdr pane run "$bridge" "exec $here/bin/herdr-buzz $name $pane $channel $flags 2>&1 | grep -v acp::thought"
+herdr pane run "$bridge" "exec $here/bin/herdr-buzz $name $pane $channel $flags 2>&1 | grep --line-buffered -E 'turn (starting|complete)|tee:|ERROR|WARN|presence set'"
 agent=$(herdr pane get "$pane" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["pane"].get("agent") or "shell")')
 herdr pane report-metadata "$pane" --source herdr-buzz --display-agent "$agent ⇄ #$name" --token "buzz=#$name" >/dev/null 2>&1 || true
 echo "$bridge" > "$mark"
