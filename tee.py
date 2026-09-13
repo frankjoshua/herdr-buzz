@@ -27,20 +27,37 @@ TOOL_START = "▸ {title}"
 TOOL_DONE = "✓ {title}"
 TOOL_FAIL = "✗ {title}"
 AGENT_TEXT = "{text}"          # every assistant text block, as it appears
-PANE_INPUT = "⌨ {text}"        # a human typing directly in the pane
+PANE_INPUT = "{text}"          # a human typing in the pane: posted AS the pane's owner (BUZZ_OWNER_NSEC)
 TITLE_MAX = 120
+TEE_SESSION = "tee-session"    # id of the session/new the tee sends on the client's behalf
 
 # buzz-acp's prompt, one block per event:  "From: josh (npub…, hex: …)\n…\nContent: <text>\nTags: […]"
 EVENT = re.compile(r"^From: (\S+).*?^Content: ?(.*?)\n(?:Tags:|\Z)", re.S | re.M)
 
 
+def events_of(blocks: list[str]) -> list[tuple[str, str]]:
+    return [(who, what.strip()) for b in blocks for who, what in EVENT.findall(b)]
+
+
 def reduce_prompt(blocks: list[str]) -> list[str]:
     """Collapse buzz-acp's prompt blocks (standing context, [Context], events) to 'who: what' lines.
     Prompts with no recognizable event pass through unchanged."""
-    events = [e for b in blocks for e in EVENT.findall(b)]
+    events = events_of(blocks)
     if not events:
         return blocks
-    return ["\n\n".join(f"{who}: {what.strip()}" for who, what in events)]
+    return ["\n\n".join(f"{who}: {what}" for who, what in events)]
+
+
+def drop_echoes(blocks: list[str], echoes: list[str]) -> list[str] | None:
+    """Remove events whose text the tee itself just posted as the owner (pane input coming back
+    through Buzz). Returns None when nothing is left, i.e. the whole prompt was an echo."""
+    events = events_of(blocks)
+    if not events:
+        return blocks
+    keep = [(who, what) for who, what in events if what not in echoes]
+    if not keep:
+        return None
+    return ["\n\n".join(f"{who}: {what}" for who, what in keep)]
 
 
 class Renderer:
@@ -77,26 +94,37 @@ class Poster:
 
     def __init__(self, channel: str):
         self.channel, self.q = channel, queue.Queue()
+        self.owner = os.environ.get("BUZZ_OWNER_NSEC")
+        self.echoes = []  # texts posted as the owner; Buzz will hand them back as prompts
         threading.Thread(target=self._run, daemon=True).start()
 
-    def post(self, text: str) -> None:
-        if text.strip():
-            self.q.put(text)
+    def post(self, text: str, as_owner: bool = False) -> None:
+        if not text.strip():
+            return
+        if as_owner and self.owner:
+            self.echoes = (self.echoes + [text.strip()])[-20:]
+        self.q.put((text, as_owner and bool(self.owner)))
 
     def _run(self) -> None:
         while True:
-            text = self.q.get()
+            text, as_owner = self.q.get()
+            env = dict(os.environ)
+            if as_owner:  # the owner's own key, and no agent auth tag on a human's message
+                env["BUZZ_PRIVATE_KEY"] = self.owner
+                env.pop("BUZZ_AUTH_TAG", None)
             try:
                 r = subprocess.run(["buzz", "messages", "send", "--channel", self.channel, "--content", "-"],
-                                   input=text, capture_output=True, text=True)
+                                   input=text, capture_output=True, text=True, env=env)
                 if r.returncode:
                     raise RuntimeError(r.stderr.strip()[:300])
             except Exception as e:  # the thread must outlive a missing/broken `buzz`
                 print(f"tee: post failed: {e}", file=sys.stderr, flush=True)
 
 
-def downstream(src, dst, transform) -> None:
-    """Forward src -> dst; `transform(texts) -> texts` rewrites each session/prompt's text blocks."""
+def downstream(src, dst, transform, poster: Poster, reply) -> None:
+    """Forward src -> dst; `transform(texts) -> texts` rewrites each session/prompt's text blocks.
+    A prompt that is only our own owner-posted pane input echoing back is answered with end_turn
+    via `reply(msg)` and never reaches the pane."""
     for line in src:
         try:
             msg = json.loads(line)
@@ -104,27 +132,41 @@ def downstream(src, dst, transform) -> None:
                 blocks = msg["params"].get("prompt", [])
                 texts = [b["text"] for b in blocks if b.get("type") == "text"]
                 if len(texts) == len(blocks):
+                    texts = drop_echoes(texts, poster.echoes)
+                    if texts is None:
+                        reply({"jsonrpc": "2.0", "id": msg.get("id"), "result": {"stopReason": "end_turn"}})
+                        continue
                     msg["params"]["prompt"] = [{"type": "text", "text": t} for t in transform(texts)]
                 line = (json.dumps(msg) + "\n").encode()
         except (ValueError, KeyError, TypeError) as e:
             print(f"tee: prompt not reduced: {e!r}", file=sys.stderr, flush=True)
         dst.write(line)
         dst.flush()
+        if msg.get("method") == "initialize":
+            # buzz-acp only opens a session on the first channel message; open one now so the pane
+            # is mirrored from the start. herdr-acp re-keys its tail when the real session arrives.
+            dst.write((json.dumps({"jsonrpc": "2.0", "id": TEE_SESSION, "method": "session/new",
+                                   "params": {"cwd": "/", "mcpServers": []}}) + "\n").encode())
+            dst.flush()
     dst.close()
 
 
-def upstream(src, dst, poster: Poster, renderer: Renderer) -> None:
+def upstream(src, dst, lock, poster: Poster, renderer: Renderer) -> None:
     for line in src:
-        dst.write(line)
-        dst.flush()
         try:
             msg = json.loads(line)
         except ValueError:
-            continue
+            msg = {}
+        if msg.get("id") == TEE_SESSION:
+            continue  # answer to our own early session/new; buzz-acp never asked
+        with lock:
+            dst.write(line)
+            dst.flush()
         if msg.get("method") == "session/update":
-            out = renderer.render(msg["params"]["update"])
+            u = msg["params"]["update"]
+            out = renderer.render(u)
             if out:
-                poster.post(out)
+                poster.post(out, as_owner=u.get("sessionUpdate") == "user_message_chunk")
 
 
 def main() -> None:
@@ -139,9 +181,16 @@ def main() -> None:
     child = subprocess.Popen([a.herdr_acp, "--pane", a.pane], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     poster = Poster(a.channel)
     transform = (lambda blocks: blocks) if a.raw_prompt else reduce_prompt
-    t = threading.Thread(target=downstream, args=(sys.stdin.buffer, child.stdin, transform), daemon=True)
+    lock = threading.Lock()
+
+    def reply(msg):
+        with lock:
+            sys.stdout.buffer.write((json.dumps(msg) + "\n").encode())
+            sys.stdout.buffer.flush()
+
+    t = threading.Thread(target=downstream, args=(sys.stdin.buffer, child.stdin, transform, poster, reply), daemon=True)
     t.start()
-    upstream(child.stdout, sys.stdout.buffer, poster, Renderer(tools=a.tools == "all"))
+    upstream(child.stdout, sys.stdout.buffer, lock, poster, Renderer(tools=a.tools == "all"))
     sys.exit(child.wait())
 
 
@@ -159,7 +208,10 @@ def _selfcheck() -> None:
     assert r.render({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "in_progress"}) is None
     assert r.render({"sessionUpdate": "agent_thought_chunk"}) is None
     assert r.render({"sessionUpdate": "agent_message_chunk", "content": {"text": "hi"}}) == "hi"
-    assert r.render({"sessionUpdate": "user_message_chunk", "content": {"text": "fix it"}}) == "⌨ fix it"
+    assert r.render({"sessionUpdate": "user_message_chunk", "content": {"text": "fix it"}}) == "fix it"
+    assert drop_echoes(p, ["hello\nthere"]) == ["sam: run pwd"]
+    assert drop_echoes(p, ["hello\nthere", "run pwd"]) is None
+    assert drop_echoes(["plain heartbeat"], ["x"]) == ["plain heartbeat"]
     assert Renderer(tools=False).render({"sessionUpdate": "tool_call", "toolCallId": "t2", "title": "x"}) is None
     print("tee ok")
 

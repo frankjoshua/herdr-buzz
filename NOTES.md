@@ -10,6 +10,13 @@
 - **Everything in the pane mirrors to the channel** (2026-09-13): `⌨ <text>` when a human types in
   the pane, every assistant text block as it appears, `▸`/`✓`/`✗` per tool call. Verified both
   directions on the real relay. buzz-acp accepts updates between turns without complaint.
+- **Pane input posts as Josh** (2026-09-13). `user_message_chunk` is sent with `BUZZ_OWNER_NSEC`
+  (no auth tag) so it reads as a message from the pane's owner, not from the agent. Buzz then hands
+  that message back to the bridge as a prompt; the tee recognises its own recent owner posts and
+  answers `end_turn` without touching the pane (`drop_echoes`).
+- **The tee opens a session at startup** (`session/new`, id `tee-session`) because buzz-acp only
+  opens one on the first channel message; without it nothing typed in the pane is mirrored until
+  someone posts in Buzz. herdr-acp restarts its tail under buzz-acp's real session when it comes.
 - buzz-acp still sees the full ACP stream, so typing indicator and observer feed are unchanged.
 - Caveat: a Claude session that previously received Buzz instructions keeps replying itself
   from memory. Start a fresh session when switching a pane to the tee.

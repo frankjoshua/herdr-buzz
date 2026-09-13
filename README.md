@@ -5,8 +5,8 @@ plain ACP agent that wraps a Herdr pane; this repo holds everything Buzz-specifi
 
 - `mint.py` — create a Buzz agent identity owned by Josh from the CLI (keypair, NIP-OA auth tag,
   profile, bot membership). No desktop app involved. Stdlib only.
-- `tee.py` — sits between buzz-acp and herdr-acp. Reduces prompts to `who: message`, posts tool
-  calls and the final reply to the channel as the agent. The pane agent needs no key, env, or
+- `tee.py` — sits between buzz-acp and herdr-acp. Reduces prompts to `who: message`; posts tool
+  calls and agent text to the channel as the agent, and pane input as the pane's owner. The pane agent needs no key, env, or
   instructions.
 - `bin/herdr-buzz <agent> <pane> <channel>` — run `buzz-acp` + tee for one pane under that
   identity (subscribe all, kind 9 only, relay observer).
