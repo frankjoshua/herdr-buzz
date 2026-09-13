@@ -19,7 +19,7 @@ name=$(printf '%s' "$label" | tr -c 'A-Za-z0-9._-' '-' | sed 's/^-*//; s/-*$//')
 
 set -a; . "$HOME/.config/buzz-acp/owner.env"; . "$HOME/.config/buzz-acp/agent.env"; set +a   # relay url + a key that can search
 env_file="$HOME/.config/buzz-acp/agents/$name.env"
-channel=$(grep -o '^BUZZ_CHANNEL=.*' "$env_file" 2>/dev/null | cut -d= -f2- | tr -d "'\"")   # pinned at mint time
+channel=$( { grep -o '^BUZZ_CHANNEL=.*' "$env_file" 2>/dev/null || true; } | cut -d= -f2- | tr -d "'\"")   # pinned at mint time
 [ -n "$channel" ] || channel=$(buzz channels search --query "$name" | python3 -c '
 import json,sys; want=sys.argv[1]
 hits=[c for c in json.load(sys.stdin) if c["name"]==want and not c.get("archived")]
