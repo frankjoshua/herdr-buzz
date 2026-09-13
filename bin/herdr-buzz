@@ -3,6 +3,8 @@
 #   herdr-buzz <agent-name> <pane-id> <channel-id> [extra buzz-acp flags...]
 # Identity: ~/.config/buzz-acp/agents/<agent-name>.env (from `python mint.py`).
 # The pane's agent needs nothing: tee.py posts tool calls and the reply as the agent.
+# Anyone in the channel may prompt (the relay is tailnet-only and membership is the gate); pass
+# --respond-to owner-only after the channel id to restrict it.
 set -euo pipefail
 name=$1; pane=$2; channel=$3; shift 3
 set -a; . "$HOME/.config/buzz-acp/agents/$name.env"; . "$HOME/.config/buzz-acp/owner.env" 2>/dev/null || true; set +a   # owner nsec: pane input posts as the owner
@@ -10,5 +12,5 @@ here=$(cd "$(dirname "$0")/.." && pwd)
 export BUZZ_OWNER_PUBKEY=${BUZZ_OWNER_PUBKEY:-$(python3 "$here/mint.py" --owner-pubkey 2>/dev/null || true)}   # owner's own messages stay unlabeled
 exec "$HOME/buzz/target/release/buzz-acp" \
   --agent-command python3 --agent-args="$here/tee.py,--channel,$channel,--pane,$pane" \
-  --channels "$channel" --subscribe all --kinds 9 --no-mention-filter --relay-observer \
+  --channels "$channel" --subscribe all --kinds 9 --no-mention-filter --relay-observer --respond-to anyone \
   --idle-timeout 120 --multiple-event-handling queue "$@"
