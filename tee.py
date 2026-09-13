@@ -32,20 +32,25 @@ TITLE_MAX = 120
 TEE_SESSION = "tee-session"    # id of the session/new the tee sends on the client's behalf
 
 # buzz-acp's prompt, one block per event:  "From: josh (npub…, hex: …)\n…\nContent: <text>\nTags: […]"
-EVENT = re.compile(r"^From: (\S+).*?^Content: ?(.*?)\n(?:Tags:|\Z)", re.S | re.M)
+EVENT = re.compile(r"^From: (\S+)(?:[^\n]*hex: ([0-9a-f]{64}))?[^\n]*\n.*?^Content: ?(.*?)\n(?:Tags:|\Z)", re.S | re.M)
+OWNER = os.environ.get("BUZZ_OWNER_PUBKEY", "")  # the pane's owner: their messages arrive unlabeled
 
 
-def events_of(blocks: list[str]) -> list[tuple[str, str]]:
-    return [(who, what.strip()) for b in blocks for who, what in EVENT.findall(b)]
+def events_of(blocks: list[str]) -> list[tuple[str, str, str]]:
+    """(who, pubkey, what) per Buzz event in buzz-acp's prompt blocks."""
+    return [(who, key, what.strip()) for b in blocks for who, key, what in EVENT.findall(b)]
+
+
+def render_events(events) -> list[str]:
+    """One block; the pane's owner speaks unlabeled, anyone else is 'who: what'."""
+    return ["\n\n".join(what if OWNER and key == OWNER else f"{who}: {what}" for who, key, what in events)]
 
 
 def reduce_prompt(blocks: list[str]) -> list[str]:
-    """Collapse buzz-acp's prompt blocks (standing context, [Context], events) to 'who: what' lines.
+    """Collapse buzz-acp's prompt blocks (standing context, [Context], events) to the messages.
     Prompts with no recognizable event pass through unchanged."""
     events = events_of(blocks)
-    if not events:
-        return blocks
-    return ["\n\n".join(f"{who}: {what}" for who, what in events)]
+    return render_events(events) if events else blocks
 
 
 def drop_echoes(blocks: list[str], echoes: list[str]) -> list[str] | None:
@@ -54,10 +59,8 @@ def drop_echoes(blocks: list[str], echoes: list[str]) -> list[str] | None:
     events = events_of(blocks)
     if not events:
         return blocks
-    keep = [(who, what) for who, what in events if what not in echoes]
-    if not keep:
-        return None
-    return ["\n\n".join(f"{who}: {what}" for who, what in keep)]
+    keep = [e for e in events if e[2] not in echoes]
+    return render_events(keep) if keep else None
 
 
 class Renderer:
@@ -198,9 +201,13 @@ def _selfcheck() -> None:
     p = ["[Base] You are operating inside the Buzz platform…",
          "[Context]\nScope: channel\nChannel: t (#abc)\nHint: blah\nIMPORTANT: use --reply-to x",
          "[Buzz events — 2 events]\n\n--- Event 1 (all) ---\nEvent ID: e1\nChannel: t\nKind: 9\n"
-         "From: josh (npub1x, hex: a0)\nTime: now\nContent: hello\nthere\nTags: [[\"h\",\"abc\"]]\n\n"
+         "From: josh (npub1x, hex: " + "a0" * 32 + ")\nTime: now\nContent: hello\nthere\nTags: [[\"h\",\"abc\"]]\n\n"
          "--- Event 2 (all) ---\nFrom: sam (hex: b1)\nTime: now\nContent: run pwd\nTags: []\n"]
+    global OWNER
+    OWNER = ""
     assert reduce_prompt(p) == ["josh: hello\nthere\n\nsam: run pwd"], repr(reduce_prompt(p))
+    OWNER = "a0" * 32  # josh owns the pane: no label for him, label for sam
+    assert reduce_prompt(p) == ["hello\nthere\n\nsam: run pwd"], repr(reduce_prompt(p))
     assert reduce_prompt(["plain heartbeat"]) == ["plain heartbeat"]
     r = Renderer(tools=True)
     assert r.render({"sessionUpdate": "tool_call", "toolCallId": "t1", "title": "Bash: pwd"}) == "▸ Bash: pwd"

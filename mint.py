@@ -235,9 +235,12 @@ def main() -> None:
     ap.add_argument("--channel", action="append", default=[], help="channel id to join (repeatable)")
     ap.add_argument("--about")
     ap.add_argument("--selfcheck", action="store_true")
+    ap.add_argument("--owner-pubkey", action="store_true", help="print the owner pubkey from owner.env")
     a = ap.parse_args()
     if a.selfcheck:
         return _selfcheck()
+    if a.owner_pubkey:
+        return print(pubkey(parse_key(_env_file(os.path.join(CFG, "owner.env"))["BUZZ_OWNER_NSEC"])).hex())
     if not a.name:
         ap.error("--name required")
     print(mint(a.name, a.channel, a.about))
