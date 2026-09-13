@@ -196,6 +196,7 @@ def mint(name: str, channels: list[str], about: str | None) -> str:
         "BUZZ_PUBLIC_KEY": agent_pub.hex(),
         "BUZZ_AUTH_TAG": auth_tag(owner_sec, agent_pub),
         "BUZZ_RELAY_URL": relay,
+        **({"BUZZ_CHANNEL": channels[0]} if channels else {}),  # home channel; the plugin attaches here
     }
     # Persist the key before touching the relay: a failed publish must not lose it.
     os.makedirs(os.path.join(CFG, "agents"), exist_ok=True)
