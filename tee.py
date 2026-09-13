@@ -43,26 +43,32 @@ def reduce_prompt(blocks: list[str]) -> list[str]:
     return ["\n\n".join(f"{who}: {what.strip()}" for who, what in events)]
 
 
-def render(update: dict, titles: dict, tools: bool = True) -> str | None:
-    kind = update.get("sessionUpdate")
-    if kind == "agent_message_chunk":
-        return AGENT_TEXT.format(text=update["content"].get("text", ""))
-    if kind == "user_message_chunk":
-        return PANE_INPUT.format(text=update["content"].get("text", ""))
-    if not tools:
+class Renderer:
+    """One session_update -> the line to post (or None). Remembers tool titles across updates."""
+
+    def __init__(self, tools: bool = True):
+        self.titles, self.tools = {}, tools
+
+    def render(self, update: dict) -> str | None:
+        kind = update.get("sessionUpdate")
+        if kind == "agent_message_chunk":
+            return AGENT_TEXT.format(text=update["content"].get("text", ""))
+        if kind == "user_message_chunk":
+            return PANE_INPUT.format(text=update["content"].get("text", ""))
+        if not self.tools:
+            return None
+        if kind == "tool_call":
+            title = (update.get("title") or "tool")[:TITLE_MAX]
+            self.titles[update.get("toolCallId")] = title
+            return TOOL_START.format(title=title)
+        if kind == "tool_call_update":
+            title = self.titles.get(update.get("toolCallId"), "tool")
+            st = update.get("status")
+            if st == "completed":
+                return TOOL_DONE.format(title=title)
+            if st == "failed":
+                return TOOL_FAIL.format(title=title)
         return None
-    if kind == "tool_call":
-        title = (update.get("title") or "tool")[:TITLE_MAX]
-        titles[update.get("toolCallId")] = title
-        return TOOL_START.format(title=title)
-    if kind == "tool_call_update":
-        title = titles.get(update.get("toolCallId"), "tool")
-        st = update.get("status")
-        if st == "completed":
-            return TOOL_DONE.format(title=title)
-        if st == "failed":
-            return TOOL_FAIL.format(title=title)
-    return None
 
 
 # ---- plumbing --------------------------------------------------------------------------
@@ -80,32 +86,34 @@ class Poster:
     def _run(self) -> None:
         while True:
             text = self.q.get()
-            r = subprocess.run(["buzz", "messages", "send", "--channel", self.channel, "--content", "-"],
-                               input=text, capture_output=True, text=True)
-            if r.returncode:
-                print(f"tee: post failed: {r.stderr.strip()[:300]}", file=sys.stderr, flush=True)
-
-
-def downstream(src, dst, raw: bool) -> None:
-    for line in src:
-        if not raw:
             try:
-                msg = json.loads(line)
-                if msg.get("method") == "session/prompt":
-                    blocks = msg["params"].get("prompt", [])
-                    texts = [b["text"] for b in blocks if b.get("type") == "text"]
-                    if len(texts) == len(blocks):
-                        msg["params"]["prompt"] = [{"type": "text", "text": t} for t in reduce_prompt(texts)]
-                    line = (json.dumps(msg) + "\n").encode()
-            except (ValueError, KeyError, TypeError):
-                pass
+                r = subprocess.run(["buzz", "messages", "send", "--channel", self.channel, "--content", "-"],
+                                   input=text, capture_output=True, text=True)
+                if r.returncode:
+                    raise RuntimeError(r.stderr.strip()[:300])
+            except Exception as e:  # the thread must outlive a missing/broken `buzz`
+                print(f"tee: post failed: {e}", file=sys.stderr, flush=True)
+
+
+def downstream(src, dst, transform) -> None:
+    """Forward src -> dst; `transform(texts) -> texts` rewrites each session/prompt's text blocks."""
+    for line in src:
+        try:
+            msg = json.loads(line)
+            if msg.get("method") == "session/prompt":
+                blocks = msg["params"].get("prompt", [])
+                texts = [b["text"] for b in blocks if b.get("type") == "text"]
+                if len(texts) == len(blocks):
+                    msg["params"]["prompt"] = [{"type": "text", "text": t} for t in transform(texts)]
+                line = (json.dumps(msg) + "\n").encode()
+        except (ValueError, KeyError, TypeError) as e:
+            print(f"tee: prompt not reduced: {e!r}", file=sys.stderr, flush=True)
         dst.write(line)
         dst.flush()
     dst.close()
 
 
-def upstream(src, dst, poster: Poster, tools: bool) -> None:
-    titles = {}
+def upstream(src, dst, poster: Poster, renderer: Renderer) -> None:
     for line in src:
         dst.write(line)
         dst.flush()
@@ -114,7 +122,7 @@ def upstream(src, dst, poster: Poster, tools: bool) -> None:
         except ValueError:
             continue
         if msg.get("method") == "session/update":
-            out = render(msg["params"]["update"], titles, tools)
+            out = renderer.render(msg["params"]["update"])
             if out:
                 poster.post(out)
 
@@ -130,9 +138,10 @@ def main() -> None:
     a = ap.parse_args()
     child = subprocess.Popen([a.herdr_acp, "--pane", a.pane], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     poster = Poster(a.channel)
-    t = threading.Thread(target=downstream, args=(sys.stdin.buffer, child.stdin, a.raw_prompt), daemon=True)
+    transform = (lambda blocks: blocks) if a.raw_prompt else reduce_prompt
+    t = threading.Thread(target=downstream, args=(sys.stdin.buffer, child.stdin, transform), daemon=True)
     t.start()
-    upstream(child.stdout, sys.stdout.buffer, poster, a.tools == "all")
+    upstream(child.stdout, sys.stdout.buffer, poster, Renderer(tools=a.tools == "all"))
     sys.exit(child.wait())
 
 
@@ -144,14 +153,14 @@ def _selfcheck() -> None:
          "--- Event 2 (all) ---\nFrom: sam (hex: b1)\nTime: now\nContent: run pwd\nTags: []\n"]
     assert reduce_prompt(p) == ["josh: hello\nthere\n\nsam: run pwd"], repr(reduce_prompt(p))
     assert reduce_prompt(["plain heartbeat"]) == ["plain heartbeat"]
-    titles = {}
-    assert render({"sessionUpdate": "tool_call", "toolCallId": "t1", "title": "Bash: pwd"}, titles) == "▸ Bash: pwd"
-    assert render({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "completed"}, titles) == "✓ Bash: pwd"
-    assert render({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "in_progress"}, titles) is None
-    assert render({"sessionUpdate": "agent_thought_chunk"}, titles) is None
-    assert render({"sessionUpdate": "agent_message_chunk", "content": {"text": "hi"}}, titles) == "hi"
-    assert render({"sessionUpdate": "user_message_chunk", "content": {"text": "fix it"}}, titles) == "⌨ fix it"
-    assert render({"sessionUpdate": "tool_call", "toolCallId": "t2", "title": "x"}, titles, tools=False) is None
+    r = Renderer(tools=True)
+    assert r.render({"sessionUpdate": "tool_call", "toolCallId": "t1", "title": "Bash: pwd"}) == "▸ Bash: pwd"
+    assert r.render({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "completed"}) == "✓ Bash: pwd"
+    assert r.render({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "in_progress"}) is None
+    assert r.render({"sessionUpdate": "agent_thought_chunk"}) is None
+    assert r.render({"sessionUpdate": "agent_message_chunk", "content": {"text": "hi"}}) == "hi"
+    assert r.render({"sessionUpdate": "user_message_chunk", "content": {"text": "fix it"}}) == "⌨ fix it"
+    assert Renderer(tools=False).render({"sessionUpdate": "tool_call", "toolCallId": "t2", "title": "x"}) is None
     print("tee ok")
 
 

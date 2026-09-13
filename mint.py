@@ -61,7 +61,10 @@ def pubkey(seckey: bytes) -> bytes:
 
 def schnorr_sign(msg: bytes, seckey: bytes, aux: bytes = bytes(32)) -> bytes:
     d0 = int.from_bytes(seckey, "big")
-    assert 1 <= d0 < N and len(msg) == 32
+    if not 1 <= d0 < N:
+        raise ValueError("secret key out of range")
+    if len(msg) != 32:
+        raise ValueError(f"message must be 32 bytes, got {len(msg)}")
     Pt = _mul(G, d0)
     d = d0 if Pt[1] % 2 == 0 else N - d0
     t = (d ^ int.from_bytes(_tagged("BIP0340/aux", aux), "big")).to_bytes(32, "big")
@@ -133,7 +136,8 @@ def bech32_decode(s: str) -> tuple[str, bytes]:
     s = s.lower()
     hrp, data = s.rsplit("1", 1)
     vals = [_B32.index(c) for c in data]
-    assert _polymod(_hrp_expand(hrp) + vals) == 1, "bad bech32 checksum"
+    if _polymod(_hrp_expand(hrp) + vals) != 1:
+        raise ValueError(f"bad bech32 checksum in {s[:8]}…")
     return hrp, bytes(_convertbits(vals[:-6], 5, 8, False))
 
 
@@ -147,7 +151,8 @@ def parse_key(s: str) -> bytes:
     s = s.strip()
     if s.startswith("nsec1"):
         hrp, raw = bech32_decode(s)
-        assert hrp == "nsec" and len(raw) == 32
+        if hrp != "nsec" or len(raw) != 32:
+            raise ValueError(f"expected an nsec of 32 bytes, got hrp={hrp!r} with {len(raw)} bytes")
         return raw
     return bytes.fromhex(s)
 
@@ -173,12 +178,11 @@ def _env_file(path: str) -> dict:
     return out
 
 
-def _buzz(env: dict, *args: str) -> dict:
+def _buzz(env: dict, *args: str) -> None:
     merged = {k: v for k, v in {**os.environ, **env}.items() if v != ""}  # "" unsets (BUZZ_AUTH_TAG)
     r = subprocess.run(["buzz", *args], env=merged, capture_output=True, text=True)
     if r.returncode:
         raise SystemExit(f"buzz {' '.join(args[:2])} failed: {r.stderr.strip() or r.stdout.strip()}")
-    return json.loads(r.stdout) if r.stdout.strip().startswith(("{", "[")) else {}
 
 
 def mint(name: str, channels: list[str], about: str | None) -> str:
@@ -193,16 +197,17 @@ def mint(name: str, channels: list[str], about: str | None) -> str:
         "BUZZ_AUTH_TAG": auth_tag(owner_sec, agent_pub),
         "BUZZ_RELAY_URL": relay,
     }
-    _buzz(env, "users", "set-profile", "--name", name, *(["--about", about] if about else []))
-    # Owner adds the agent with role `bot`: that role is what Buzz's UIs key "agent" features on.
-    owner_env = {"BUZZ_PRIVATE_KEY": owner_sec.hex(), "BUZZ_RELAY_URL": relay, "BUZZ_AUTH_TAG": ""}
-    for ch in channels:
-        _buzz(owner_env, "channels", "add-member", "--channel", ch, "--pubkey", agent_pub.hex(), "--role", "bot")
+    # Persist the key before touching the relay: a failed publish must not lose it.
     os.makedirs(os.path.join(CFG, "agents"), exist_ok=True)
     path = os.path.join(CFG, "agents", f"{name}.env")
     with open(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
         for k, v in env.items():
             f.write(f"{k}='{v}'\n")
+    _buzz(env, "users", "set-profile", "--name", name, *(["--about", about] if about else []))
+    # Owner adds the agent with role `bot`: that role is what Buzz's UIs key "agent" features on.
+    owner_env = {"BUZZ_PRIVATE_KEY": owner_sec.hex(), "BUZZ_RELAY_URL": relay, "BUZZ_AUTH_TAG": ""}
+    for ch in channels:
+        _buzz(owner_env, "channels", "add-member", "--channel", ch, "--pubkey", agent_pub.hex(), "--role", "bot")
     return path
 
 
@@ -225,7 +230,7 @@ def _selfcheck() -> None:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(prog="herdr-acp mint")
+    ap = argparse.ArgumentParser()
     ap.add_argument("--name")
     ap.add_argument("--channel", action="append", default=[], help="channel id to join (repeatable)")
     ap.add_argument("--about")
