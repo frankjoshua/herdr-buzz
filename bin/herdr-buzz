@@ -8,7 +8,8 @@ name=$1; pane=$2; channel=$3; shift 3
 set -a; . "$HOME/.config/buzz-acp/agents/$name.env"; set +a
 : "${HERDR_ACP:=$HOME/development/workspace/herdr-acp/.venv/bin/herdr-acp}"
 # buzz-acp's prompt tells the agent to thread replies; Josh wants top-level channel posts.
-export HERDR_ACP_FOOTER="[herdr-buzz] Post your reply as a top-level channel message: \`buzz messages send --channel <id> --content ...\` WITHOUT --reply-to, unless the human explicitly asked for a threaded reply."
+# Existing panes were started without the Buzz env, so the reply command sources it inline.
+export HERDR_ACP_FOOTER="[herdr-buzz] Reply with: set -a; . $HOME/.config/buzz-acp/agents/$name.env; set +a; buzz messages send --channel <id> --content '...'  (top-level: no --reply-to unless the human explicitly asked for a thread)."
 exec "$HOME/buzz/target/release/buzz-acp" \
   --agent-command "$HERDR_ACP" --agent-args="--pane,$pane" \
   --channels "$channel" --subscribe all --kinds 9 --no-mention-filter --relay-observer \
