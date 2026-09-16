@@ -24,8 +24,9 @@ import threading
 
 # ---- what gets posted (edit freely) ----------------------------------------------------
 TOOL_START = "▸ {title}"
-TOOL_DONE = "✓ {title}"
-TOOL_FAIL = "✗ {title}"
+TOOL_DONE = "✓ {title}{out}"     # {out} = result excerpt as a code block, "" when there was none
+TOOL_FAIL = "✗ {title}{out}"
+OUT_LINES, OUT_CHARS = 8, 600    # how much of a tool result to show
 AGENT_TEXT = "{text}"          # every assistant text block, as it appears
 PANE_INPUT = "{text}"          # a human typing in the pane: posted AS the pane's owner (BUZZ_OWNER_NSEC)
 TITLE_MAX = 120
@@ -63,6 +64,17 @@ def drop_echoes(blocks: list[str], echoes: list[str]) -> list[str] | None:
     return render_events(keep) if keep else None
 
 
+def excerpt(update: dict) -> str:
+    """First lines of a tool result, fenced; '' when the result carried no text."""
+    text = "".join((c.get("content") or {}).get("text", "") for c in update.get("content") or [] if isinstance(c, dict))
+    lines = text.strip().splitlines()
+    if not lines:
+        return ""
+    body = "\n".join(lines[:OUT_LINES])[:OUT_CHARS]
+    more = " …" if len(lines) > OUT_LINES or len(text.strip()) > OUT_CHARS else ""
+    return f"\n```\n{body}{more}\n```"
+
+
 class Renderer:
     """One session_update -> the line to post (or None). Remembers tool titles across updates."""
 
@@ -84,10 +96,8 @@ class Renderer:
         if kind == "tool_call_update":
             title = self.titles.get(update.get("toolCallId"), "tool")
             st = update.get("status")
-            if st == "completed":
-                return TOOL_DONE.format(title=title)
-            if st == "failed":
-                return TOOL_FAIL.format(title=title)
+            if st in ("completed", "failed"):
+                return (TOOL_DONE if st == "completed" else TOOL_FAIL).format(title=title, out=excerpt(update))
         return None
 
 
@@ -222,6 +232,12 @@ def _selfcheck() -> None:
     r = Renderer(tools=True)
     assert r.render({"sessionUpdate": "tool_call", "toolCallId": "t1", "title": "Bash: pwd"}) == "▸ Bash: pwd"
     assert r.render({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "completed"}) == "✓ Bash: pwd"
+    out = {"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "completed",
+           "content": [{"type": "content", "content": {"type": "text", "text": "\n".join(f"line{i}" for i in range(12))}}]}
+    got = r.render(out)
+    assert got.startswith("✓ Bash: pwd\n```\nline0\n") and got.endswith("line7 …\n```"), got
+    assert r.render({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "failed",
+                     "content": [{"type": "content", "content": {"type": "text", "text": "boom"}}]}) == "✗ Bash: pwd\n```\nboom\n```"
     assert r.render({"sessionUpdate": "tool_call_update", "toolCallId": "t1", "status": "in_progress"}) is None
     assert r.render({"sessionUpdate": "agent_thought_chunk"}) is None
     assert r.render({"sessionUpdate": "agent_message_chunk", "content": {"text": "hi"}}) == "hi"
