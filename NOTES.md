@@ -17,7 +17,15 @@
 - **The tee opens a session at startup** (`session/new`, id `tee-session`) because buzz-acp only
   opens one on the first channel message; without it nothing typed in the pane is mirrored until
   someone posts in Buzz. herdr-acp restarts its tail under buzz-acp's real session when it comes.
-- buzz-acp still sees the full ACP stream, so typing indicator and observer feed are unchanged.
+- **buzz-acp reads the agent's stdout only while a prompt is in flight** (found 2026-09-16 when the
+  support bridge went silent). Between turns the pipe filled (64 KB), the tee blocked on write,
+  herdr-acp blocked behind it, and the next Buzz prompt sat unanswered. The tee now forwards
+  `session/update` upstream only between a `session/prompt` and its response; between turns it
+  posts to the channel and drops the upstream copy. Tool results are no longer duplicated in
+  `rawOutput` (buzz-acp's observer frames hit NIP-44's 64 KB limit).
+- A Codex started by the Codex desktop harness runs inside `tmux -L codex-account-<pid>`; Herdr
+  can't see it. herdr-acp follows the tmux socket to the pane process (transport.process()).
+- buzz-acp still sees the full ACP stream during turns, so typing indicator and observer feed are unchanged.
 - Caveat: a Claude session that previously received Buzz instructions keeps replying itself
   from memory. Start a fresh session when switching a pane to the tee.
 
