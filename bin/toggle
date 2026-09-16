@@ -5,6 +5,7 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
 pane=${HERDR_PANE_ID:?no focused pane}
 state=${HERDR_PLUGIN_STATE_DIR:-$HOME/.config/buzz-acp/bridges}; mkdir -p "$state"
+echo "$(date +%FT%T) pane=$pane ws=${HERDR_WORKSPACE_ID:-} ctx=${HERDR_PLUGIN_CONTEXT_JSON:-}" >> "$state/toggle.log"   # which pane Herdr handed us
 mark="$state/${pane//:/_}"
 
 if [ -f "$mark" ]; then                                   # detach
