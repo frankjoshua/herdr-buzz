@@ -124,7 +124,7 @@ class Poster:
                 print(f"tee: post failed: {e}", file=sys.stderr, flush=True)
 
 
-def downstream(src, dst, transform, poster: Poster, reply) -> None:
+def downstream(src, dst, transform, poster: Poster, reply, turn: threading.Event) -> None:
     """Forward src -> dst; `transform(texts) -> texts` rewrites each session/prompt's text blocks.
     A prompt that is only our own owner-posted pane input echoing back is answered with end_turn
     via `reply(msg)` and never reaches the pane."""
@@ -132,11 +132,13 @@ def downstream(src, dst, transform, poster: Poster, reply) -> None:
         try:
             msg = json.loads(line)
             if msg.get("method") == "session/prompt":
+                turn.set()  # buzz-acp reads our stdout only while it waits for this answer
                 blocks = msg["params"].get("prompt", [])
                 texts = [b["text"] for b in blocks if b.get("type") == "text"]
                 if len(texts) == len(blocks):
                     texts = drop_echoes(texts, poster.echoes)
                     if texts is None:
+                        turn.clear()
                         reply({"jsonrpc": "2.0", "id": msg.get("id"), "result": {"stopReason": "end_turn"}})
                         continue
                     msg["params"]["prompt"] = [{"type": "text", "text": t} for t in transform(texts)]
@@ -154,7 +156,7 @@ def downstream(src, dst, transform, poster: Poster, reply) -> None:
     dst.close()
 
 
-def upstream(src, dst, lock, poster: Poster, renderer: Renderer) -> None:
+def upstream(src, dst, lock, poster: Poster, renderer: Renderer, turn: threading.Event) -> None:
     for line in src:
         try:
             msg = json.loads(line)
@@ -162,9 +164,16 @@ def upstream(src, dst, lock, poster: Poster, renderer: Renderer) -> None:
             msg = {}
         if msg.get("id") == TEE_SESSION:
             continue  # answer to our own early session/new; buzz-acp never asked
-        with lock:
-            dst.write(line)
-            dst.flush()
+        # Between turns buzz-acp does not read this pipe, so forwarding would block once it fills
+        # (64 KB) and stall everything behind it. The channel gets the updates either way.
+        if msg.get("method") == "session/update" and not turn.is_set():
+            pass
+        else:
+            with lock:
+                dst.write(line)
+                dst.flush()
+        if isinstance(msg.get("result"), dict) and "stopReason" in msg["result"]:
+            turn.clear()
         if msg.get("method") == "session/update":
             u = msg["params"]["update"]
             out = renderer.render(u)
@@ -185,15 +194,16 @@ def main() -> None:
     poster = Poster(a.channel)
     transform = (lambda blocks: blocks) if a.raw_prompt else reduce_prompt
     lock = threading.Lock()
+    turn = threading.Event()
 
     def reply(msg):
         with lock:
             sys.stdout.buffer.write((json.dumps(msg) + "\n").encode())
             sys.stdout.buffer.flush()
 
-    t = threading.Thread(target=downstream, args=(sys.stdin.buffer, child.stdin, transform, poster, reply), daemon=True)
+    t = threading.Thread(target=downstream, args=(sys.stdin.buffer, child.stdin, transform, poster, reply, turn), daemon=True)
     t.start()
-    upstream(child.stdout, sys.stdout.buffer, lock, poster, Renderer(tools=a.tools == "all"))
+    upstream(child.stdout, sys.stdout.buffer, lock, poster, Renderer(tools=a.tools == "all"), turn)
     sys.exit(child.wait())
 
 
