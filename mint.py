@@ -188,7 +188,7 @@ def _buzz(env: dict, *args: str) -> None:
 def mint(name: str, channels: list[str], about: str | None) -> str:
     owner = _env_file(os.path.join(CFG, "owner.env"))
     owner_sec = parse_key(owner["BUZZ_OWNER_NSEC"])
-    relay = owner.get("BUZZ_RELAY_URL") or _env_file(os.path.join(CFG, "agent.env"))["BUZZ_RELAY_URL"]
+    relay = owner["BUZZ_RELAY_URL"]
     agent_sec = secrets.token_bytes(32)
     agent_pub = pubkey(agent_sec)
     env = {

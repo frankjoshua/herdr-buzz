@@ -6,8 +6,22 @@ Herdr pane; this repo holds everything Buzz-specific. Press `prefix+y` on any pa
 Buzz channel: messages typed into the pane, everything the agent does posted back, people in the
 channel able to prompt it.
 
-Needs: the `herdr` and `buzz` CLIs, a built `buzz-acp` (`~/buzz/target/release/buzz-acp`), and a
-herdr-acp checkout at `~/development/workspace/herdr-acp` with its `.venv` (or `HERDR_ACP=<path>`).
+## Setting up a machine
+
+1. Herdr with the `herdr` CLI on PATH; Tailscale access to the relay.
+2. [herdr-acp](https://github.com/frankjoshua/herdr-acp) cloned to `~/development/workspace/herdr-acp`
+   and installed into its `.venv` (or point `HERDR_ACP` at the `herdr-acp` binary).
+3. Buzz: the `buzz` CLI on PATH and a built `buzz-acp` at `~/buzz/target/release/buzz-acp`
+   (or `BUZZ_ACP=<path>`). Both come from the [buzz](https://github.com/block/buzz) repo.
+4. `~/.config/buzz-acp/owner.env` (mode 0600) with your Buzz private key and the relay:
+   ```
+   BUZZ_OWNER_NSEC=nsec1...
+   BUZZ_RELAY_URL=wss://your-relay.example
+   ```
+   Optional: `~/.config/buzz-acp/members`, one pubkey per line, added to every channel the plugin
+   creates; `~/.config/buzz-acp/herdr-buzz.flags`, extra buzz-acp flags.
+5. `herdr plugin link ~/development/workspace/herdr-buzz` and the `prefix+y` binding below.
+6. Check: `python3 mint.py --selfcheck` prints your owner pubkey.
 
 - `mint.py` — create a Buzz agent identity owned by Josh from the CLI (keypair, NIP-OA auth tag,
   profile, bot membership). No desktop app involved. Stdlib only.

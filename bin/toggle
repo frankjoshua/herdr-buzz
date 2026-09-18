@@ -18,7 +18,8 @@ ws=${pane%%:*}
 label=$(herdr workspace get "$ws" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["workspace"]["label"])')
 name=$(printf '%s' "$label" | tr -c 'A-Za-z0-9._-' '-' | sed 's/^-*//; s/-*$//'); name=${name:-pane-${pane//:/-}}
 
-set -a; . "$HOME/.config/buzz-acp/owner.env"; . "$HOME/.config/buzz-acp/agent.env"; set +a   # relay url + a key that can search
+set -a; . "$HOME/.config/buzz-acp/owner.env"; set +a          # BUZZ_OWNER_NSEC + BUZZ_RELAY_URL
+export BUZZ_PRIVATE_KEY=$BUZZ_OWNER_NSEC; unset BUZZ_AUTH_TAG   # search/create/add-member as the owner
 env_file="$HOME/.config/buzz-acp/agents/$name.env"
 channel=$( { grep -o '^BUZZ_CHANNEL=.*' "$env_file" 2>/dev/null || true; } | cut -d= -f2- | tr -d "'\"")   # pinned at mint time
 [ -n "$channel" ] || channel=$(buzz channels search --query "$name" | python3 -c '
