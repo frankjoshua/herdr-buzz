@@ -1,7 +1,13 @@
 # herdr-buzz
 
-Glue between [Buzz](https://github.com/block/buzz) and [herdr-acp](../herdr-acp). herdr-acp is a
-plain ACP agent that wraps a Herdr pane; this repo holds everything Buzz-specific:
+Glue between [Buzz](https://github.com/block/buzz) and
+[herdr-acp](https://github.com/frankjoshua/herdr-acp). herdr-acp is a plain ACP agent that wraps a
+Herdr pane; this repo holds everything Buzz-specific. Press `prefix+y` on any pane and it becomes a
+Buzz channel: messages typed into the pane, everything the agent does posted back, people in the
+channel able to prompt it.
+
+Needs: the `herdr` and `buzz` CLIs, a built `buzz-acp` (`~/buzz/target/release/buzz-acp`), and a
+herdr-acp checkout at `~/development/workspace/herdr-acp` with its `.venv` (or `HERDR_ACP=<path>`).
 
 - `mint.py` — create a Buzz agent identity owned by Josh from the CLI (keypair, NIP-OA auth tag,
   profile, bot membership). No desktop app involved. Stdlib only.
