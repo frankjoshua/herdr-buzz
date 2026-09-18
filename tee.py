@@ -34,7 +34,6 @@ TEE_SESSION = "tee-session"    # id of the session/new the tee sends on the clie
 
 # buzz-acp's prompt, one block per event:  "From: josh (npub…, hex: …)\n…\nContent: <text>\nTags: […]"
 EVENT = re.compile(r"^From: (\S+)(?:[^\n]*hex: ([0-9a-f]{64}))?[^\n]*\n.*?^Content: ?(.*?)\n(?:Tags:|\Z)", re.S | re.M)
-OWNER = os.environ.get("BUZZ_OWNER_PUBKEY", "")  # the pane's owner: their messages arrive unlabeled
 
 
 def events_of(blocks: list[str]) -> list[tuple[str, str, str]]:
@@ -42,26 +41,26 @@ def events_of(blocks: list[str]) -> list[tuple[str, str, str]]:
     return [(who, key, what.strip()) for b in blocks for who, key, what in EVENT.findall(b)]
 
 
-def render_events(events) -> list[str]:
+def render_events(events, owner: str) -> list[str]:
     """One block; the pane's owner speaks unlabeled, anyone else is 'who: what'."""
-    return ["\n\n".join(what if OWNER and key == OWNER else f"{who}: {what}" for who, key, what in events)]
+    return ["\n\n".join(what if owner and key == owner else f"{who}: {what}" for who, key, what in events)]
 
 
-def reduce_prompt(blocks: list[str]) -> list[str]:
+def reduce_prompt(blocks: list[str], owner: str = "") -> list[str]:
     """Collapse buzz-acp's prompt blocks (standing context, [Context], events) to the messages.
     Prompts with no recognizable event pass through unchanged."""
     events = events_of(blocks)
-    return render_events(events) if events else blocks
+    return render_events(events, owner) if events else blocks
 
 
-def drop_echoes(blocks: list[str], echoes: list[str]) -> list[str] | None:
+def drop_echoes(blocks: list[str], echoes: list[str], owner: str = "") -> list[str] | None:
     """Remove events whose text the tee itself just posted as the owner (pane input coming back
     through Buzz). Returns None when nothing is left, i.e. the whole prompt was an echo."""
     events = events_of(blocks)
     if not events:
         return blocks
     keep = [e for e in events if e[2] not in echoes]
-    return render_events(keep) if keep else None
+    return render_events(keep, owner) if keep else None
 
 
 def excerpt(update: dict) -> str:
@@ -134,7 +133,7 @@ class Poster:
                 print(f"tee: post failed: {e}", file=sys.stderr, flush=True)
 
 
-def downstream(src, dst, transform, poster: Poster, reply, turn: threading.Event) -> None:
+def downstream(src, dst, transform, poster: Poster, reply, turn: threading.Event, owner: str) -> None:
     """Forward src -> dst; `transform(texts) -> texts` rewrites each session/prompt's text blocks.
     A prompt that is only our own owner-posted pane input echoing back is answered with end_turn
     via `reply(msg)` and never reaches the pane."""
@@ -146,7 +145,7 @@ def downstream(src, dst, transform, poster: Poster, reply, turn: threading.Event
                 blocks = msg["params"].get("prompt", [])
                 texts = [b["text"] for b in blocks if b.get("type") == "text"]
                 if len(texts) == len(blocks):
-                    texts = drop_echoes(texts, poster.echoes)
+                    texts = drop_echoes(texts, poster.echoes, owner)
                     if texts is None:
                         turn.clear()
                         reply({"jsonrpc": "2.0", "id": msg.get("id"), "result": {"stopReason": "end_turn"}})
@@ -202,7 +201,8 @@ def main() -> None:
     a = ap.parse_args()
     child = subprocess.Popen([a.herdr_acp, "--pane", a.pane], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     poster = Poster(a.channel)
-    transform = (lambda blocks: blocks) if a.raw_prompt else reduce_prompt
+    owner = os.environ.get("BUZZ_OWNER_PUBKEY", "")  # the pane's owner: their messages arrive unlabeled
+    transform = (lambda blocks: blocks) if a.raw_prompt else (lambda blocks: reduce_prompt(blocks, owner))
     lock = threading.Lock()
     turn = threading.Event()
 
@@ -211,7 +211,7 @@ def main() -> None:
             sys.stdout.buffer.write((json.dumps(msg) + "\n").encode())
             sys.stdout.buffer.flush()
 
-    t = threading.Thread(target=downstream, args=(sys.stdin.buffer, child.stdin, transform, poster, reply, turn), daemon=True)
+    t = threading.Thread(target=downstream, args=(sys.stdin.buffer, child.stdin, transform, poster, reply, turn, owner), daemon=True)
     t.start()
     upstream(child.stdout, sys.stdout.buffer, lock, poster, Renderer(tools=a.tools == "all"), turn)
     sys.exit(child.wait())
@@ -223,11 +223,9 @@ def _selfcheck() -> None:
          "[Buzz events — 2 events]\n\n--- Event 1 (all) ---\nEvent ID: e1\nChannel: t\nKind: 9\n"
          "From: josh (npub1x, hex: " + "a0" * 32 + ")\nTime: now\nContent: hello\nthere\nTags: [[\"h\",\"abc\"]]\n\n"
          "--- Event 2 (all) ---\nFrom: sam (hex: b1)\nTime: now\nContent: run pwd\nTags: []\n"]
-    global OWNER
-    OWNER = ""
     assert reduce_prompt(p) == ["josh: hello\nthere\n\nsam: run pwd"], repr(reduce_prompt(p))
-    OWNER = "a0" * 32  # josh owns the pane: no label for him, label for sam
-    assert reduce_prompt(p) == ["hello\nthere\n\nsam: run pwd"], repr(reduce_prompt(p))
+    owner = "a0" * 32  # josh owns the pane: no label for him, label for sam
+    assert reduce_prompt(p, owner) == ["hello\nthere\n\nsam: run pwd"], repr(reduce_prompt(p, owner))
     assert reduce_prompt(["plain heartbeat"]) == ["plain heartbeat"]
     r = Renderer(tools=True)
     assert r.render({"sessionUpdate": "tool_call", "toolCallId": "t1", "title": "Bash: pwd"}) == "▸ Bash: pwd"
@@ -242,8 +240,8 @@ def _selfcheck() -> None:
     assert r.render({"sessionUpdate": "agent_thought_chunk"}) is None
     assert r.render({"sessionUpdate": "agent_message_chunk", "content": {"text": "hi"}}) == "hi"
     assert r.render({"sessionUpdate": "user_message_chunk", "content": {"text": "fix it"}}) == "fix it"
-    assert drop_echoes(p, ["hello\nthere"]) == ["sam: run pwd"]
-    assert drop_echoes(p, ["hello\nthere", "run pwd"]) is None
+    assert drop_echoes(p, ["hello\nthere"], owner) == ["sam: run pwd"]
+    assert drop_echoes(p, ["hello\nthere", "run pwd"], owner) is None
     assert drop_echoes(["plain heartbeat"], ["x"]) == ["plain heartbeat"]
     assert Renderer(tools=False).render({"sessionUpdate": "tool_call", "toolCallId": "t2", "title": "x"}) is None
     print("tee ok")
