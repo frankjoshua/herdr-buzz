@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# The prefix+y popup: status, log tail, and controls for one pane (the one prefix+y was pressed in).
+here=$(cd "$(dirname "$0")/.." && pwd)
+state=${HERDR_PLUGIN_STATE_DIR:-$HOME/.local/state/herdr/plugins/herdr-buzz}
+pane=${1:-$(cat "$state/menu.target" 2>/dev/null)}
+[ -n "$pane" ] || { echo "no target pane"; read -rsn1; exit 1; }
+b="$here/bin/bridge"
+while :; do
+  clear
+  echo "herdr-buzz · pane $pane"; echo
+  "$b" status "$pane" 2>&1 | sed 's/^/  /'
+  log=$("$b" log "$pane"); echo; echo "  log tail:"; tail -n 8 "$log" 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | grep -v "acp::thought" | cut -c1-"$(( $(tput cols 2>/dev/null || echo 100) - 4 ))" | sed 's/^/    /'
+  echo; echo "  [a] attach   [d] detach   [x] detach + delete channel   [l] full log   [r] refresh   [q] close"
+  read -rsn1 k
+  case "$k" in
+    a) "$b" attach "$pane"; sleep 1 ;;
+    d) "$b" detach "$pane"; sleep 1 ;;
+    x) echo; read -rp "  delete the channel for this pane? this is permanent [y/N] " yn; [ "${yn,,}" = y ] && "$b" delete "$pane"; sleep 1 ;;
+    l) less +G "$log" ;;
+    q|$'\e') exit 0 ;;
+  esac
+done

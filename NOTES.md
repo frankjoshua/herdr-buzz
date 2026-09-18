@@ -29,6 +29,12 @@
 - Caveat: a Claude session that previously received Buzz instructions keeps replying itself
   from memory. Start a fresh session when switching a pane to the tee.
 
+- **No bridge pane, no decoration** (2026-09-18). The bridge is a background process group per pane
+  (`setsid`; pid file + log in `HERDR_PLUGIN_STATE_DIR`). `prefix+y` opens a popup (plugin pane,
+  placement `popup`) for the focused pane with status, log tail and controls; the action relays the
+  focused pane id through `menu.target` because a plugin pane gets no target pane of its own.
+  A `pane.closed` event detaches. The sidebar decoration was dropped: it did not render for Josh.
+
 ## Buzz UI facts (learned the hard way)
 - "View activity" (owner-only tool-call/thought transcript) only appears on members whose channel
   role is `bot`. A key that *creates* a channel is `owner`, and cannot change its own role

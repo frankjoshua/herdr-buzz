@@ -16,8 +16,20 @@ command = ["bash", "bin/setup"]
 width = "70%"
 height = "60%"
 
+[[panes]]
+id = "menu"
+title = "Buzz bridge"
+placement = "popup"
+command = ["bash", "bin/menu"]
+width = "70%"
+height = "50%"
+
 [[actions]]
 id = "toggle"
-title = "Buzz: attach/detach focused pane"
+title = "Buzz: bridge menu for the focused pane"
 contexts = ["pane", "workspace"]
 command = ["bash", "bin/toggle"]
+
+[[events]]
+on = "pane.closed"
+command = ["bash", "bin/on-pane-closed"]

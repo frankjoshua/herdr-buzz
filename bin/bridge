@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# The bridge engine, one pane at a time. No visible pane: buzz-acp runs in the background with
+# its log in the plugin state dir. Used by bin/menu (the prefix+y popup) and bin/on-pane-closed.
+#   bridge attach|detach|delete|status|log <pane-id>
+set -euo pipefail
+here=$(cd "$(dirname "$0")/.." && pwd)
+cmd=${1:?attach|detach|delete|status|log}; pane=${2:?pane id}
+state=${HERDR_PLUGIN_STATE_DIR:-$HOME/.local/state/herdr/plugins/herdr-buzz}; mkdir -p "$state"
+key=${pane//:/_}; mark="$state/$key"; log="$state/$key.log"
+cfg="$HOME/.config/buzz-acp"
+
+agent_name() {  # workspace label → agent/channel name
+  local ws=${pane%%:*} label
+  label=$(herdr workspace get "$ws" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["workspace"]["label"])')
+  label=$(printf '%s' "$label" | tr -c 'A-Za-z0-9._-' '-' | sed 's/^-*//; s/-*$//'); echo "${label:-pane-${pane//:/-}}"
+}
+env_val() { { grep -o "^$2=.*" "$cfg/agents/$1.env" 2>/dev/null || true; } | cut -d= -f2- | tr -d "'\""; }
+as_owner() { env -u BUZZ_AUTH_TAG BUZZ_PRIVATE_KEY="$BUZZ_OWNER_NSEC" buzz "$@"; }
+alive() { [ -f "$mark" ] && kill -0 "$(cat "$mark")" 2>/dev/null; }
+
+case "$cmd" in
+status)
+  name=$(agent_name)
+  if alive; then echo "attached"; else echo "detached"; fi
+  echo "agent: $name"; echo "channel: $(env_val "$name" BUZZ_CHANNEL)"; echo "log: $log"
+  ;;
+log) echo "$log" ;;
+detach)
+  if [ -f "$mark" ]; then
+    pid=$(cat "$mark")
+    case "$pid" in *:*) herdr pane close "$pid" >/dev/null 2>&1 || true; pid="" ;; esac   # pre-popup marks held a bridge pane id
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+      kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true   # buzz-acp finishes in-flight turns
+      for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
+      kill -KILL -- "-$pid" 2>/dev/null || true
+    fi
+    rm -f "$mark"
+  fi
+  echo "detached"
+  ;;
+attach)
+  alive && { echo "already attached"; exit 0; }
+  set -a; . "$cfg/owner.env"; set +a                                  # BUZZ_OWNER_NSEC + BUZZ_RELAY_URL
+  name=$(agent_name); env_file="$cfg/agents/$name.env"
+  channel=$(env_val "$name" BUZZ_CHANNEL)                            # pinned per agent
+  [ -n "$channel" ] || channel=$(as_owner channels search --query "$name" | python3 -c '
+import json,sys; want=sys.argv[1]
+hits=[c for c in json.load(sys.stdin) if c["name"]==want and not c.get("archived")]
+print(hits[0]["channel_id"] if hits else "")' "$name")
+  [ -n "$channel" ] || channel=$(as_owner channels create --name "$name" --type stream --visibility open \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["channel_id"])')
+  if [ ! -f "$env_file" ]; then
+    python3 "$here/mint.py" --name "$name" --channel "$channel" >/dev/null
+  else
+    as_owner channels add-member --channel "$channel" --pubkey "$(env_val "$name" BUZZ_PUBLIC_KEY)" --role bot >/dev/null 2>&1 || true
+    grep -q '^BUZZ_CHANNEL=' "$env_file" || echo "BUZZ_CHANNEL='$channel'" >> "$env_file"
+  fi
+  while read -r pk; do                                                # ~/.config/buzz-acp/members: one pubkey per line
+    pk=${pk%%#*}; pk=${pk// /}; [ -n "$pk" ] || continue
+    as_owner channels add-member --channel "$channel" --pubkey "$pk" --role member >/dev/null 2>&1 || true
+  done < <(cat "$cfg/members" 2>/dev/null)
+  flags=$(cat "$cfg/herdr-buzz.flags" 2>/dev/null || true)          # e.g. --respond-to owner-only
+  # shellcheck disable=SC2086
+  setsid bash -c "exec \"$here/bin/herdr-buzz\" \"$name\" \"$pane\" \"$channel\" $flags" >"$log" 2>&1 < /dev/null &
+  echo $! > "$mark"
+  echo "attached to #$name"
+  ;;
+delete)
+  "$0" detach "$pane" >/dev/null
+  set -a; . "$cfg/owner.env"; set +a
+  name=$(agent_name); channel=$(env_val "$name" BUZZ_CHANNEL)
+  [ -n "$channel" ] || { echo "no channel pinned for $name"; exit 1; }
+  as_owner channels unarchive --channel "$channel" >/dev/null 2>&1 || true   # the relay refuses to delete archived
+  as_owner channels delete --channel "$channel" >/dev/null
+  sed -i '/^BUZZ_CHANNEL=/d' "$cfg/agents/$name.env" 2>/dev/null || true
+  echo "deleted #$name ($channel)"
+  ;;
+*) echo "unknown command $cmd" >&2; exit 2 ;;
+esac

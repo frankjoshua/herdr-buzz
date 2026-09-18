@@ -21,10 +21,18 @@ line) and `~/.config/buzz-acp/herdr-buzz.flags` (extra buzz-acp flags).
 
 ## Use
 
-Focus any pane (Claude, Codex, a shell) and press `prefix+y`. The workspace label becomes the
-agent name and the channel name (channel created if missing, identity minted on first use), a
-bridge pane opens below, and the sidebar shows `claude ⇄ #<channel>` on the pane. Press
-`prefix+y` again to detach. The binding, if you'd rather add it yourself:
+Focus any pane (Claude, Codex, OMP, a shell) and press `prefix+y`. A small popup shows the pane's
+bridge: attached or not, the agent and channel, the log tail, and the controls:
+
+```
+[a] attach   [d] detach   [x] detach + delete channel   [l] full log   [r] refresh   [q] close
+```
+
+Attaching names the agent and the channel after the workspace label (channel created if missing,
+identity minted on first use, people from `~/.config/buzz-acp/members` added) and runs the bridge
+in the background; no pane is taken. Closing the agent pane stops its bridge. Logs live in the
+plugin's state dir. Extra buzz-acp flags (e.g. `--respond-to owner-only`) go in
+`~/.config/buzz-acp/herdr-buzz.flags`. The binding, if you'd rather add it yourself:
 
 ```toml
 [[keys.command]]

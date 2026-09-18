@@ -16,9 +16,11 @@ Buzz messages as the owner during tests; mint a throwaway identity.
 - `mint.py` — a Buzz agent identity owned by the user, from the CLI: keypair, NIP-OA auth tag
   (BIP-340 in stdlib, checked against the spec vector), profile, bot membership, env file.
 - `bin/herdr-buzz <agent> <pane> <channel>` — runs buzz-acp + tee for one pane.
-- `bin/toggle` + `herdr-plugin.toml` — the Herdr plugin action: `prefix+y` attaches/detaches the
-  focused pane (channel named after the workspace, created if missing; members from
-  `~/.config/buzz-acp/members`; a 2-row bridge pane below; sidebar decoration `agent ⇄ #channel`).
+- `bin/bridge attach|detach|delete|status|log <pane>` — the engine: channel named after the
+  workspace (created if missing), identity minted on first use, members added, buzz-acp started
+  in the background (`setsid`, pid in the state dir, log beside it). `delete` = detach + delete
+  the pinned channel. `bin/menu` is the `prefix+y` popup over it; `bin/toggle` is the action that
+  opens the popup for the focused pane; `bin/on-pane-closed` detaches when the pane goes away.
 
 Config lives in `~/.config/buzz-acp/`: `owner.env` (the owner's nsec, never committed), `agents/*.env`
 (minted identities, `BUZZ_CHANNEL` pinned per agent), `members`, `herdr-buzz.flags`.

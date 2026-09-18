@@ -10,6 +10,7 @@ name=$1; pane=$2; channel=$3; shift 3
 case " $* " in *" --respond-to "*) ;; *) set -- --respond-to anyone "$@" ;; esac   # default gate unless the caller chose one
 set -a; . "$HOME/.config/buzz-acp/agents/$name.env"; . "$HOME/.config/buzz-acp/owner.env" 2>/dev/null || true; set +a   # owner nsec: pane input posts as the owner
 here=$(cd "$(dirname "$0")/.." && pwd)
+export NO_COLOR=1 RUST_LOG_STYLE=never   # the log goes to a file
 export BUZZ_OWNER_PUBKEY=${BUZZ_OWNER_PUBKEY:-$(python3 "$here/mint.py" --owner-pubkey 2>/dev/null || true)}   # owner's own messages stay unlabeled
 # herdr-acp: $HERDR_ACP if set, else the plugin's own venv (tee.py's default; scripts/install.sh)
 exec "${BUZZ_ACP:-$(command -v buzz-acp || echo "$HOME/buzz/target/release/buzz-acp")}" \
