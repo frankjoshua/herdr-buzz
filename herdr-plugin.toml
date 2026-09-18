@@ -5,6 +5,17 @@ min_herdr_version = "0.8.0"
 description = "Toggle a Buzz channel onto the focused pane (herdr-acp + buzz-acp)"
 platforms = ["linux", "macos"]
 
+[[build]]
+command = ["bash", "scripts/install.sh"]
+
+[[panes]]
+id = "setup"
+title = "herdr-buzz setup"
+placement = "popup"
+command = ["bash", "bin/setup"]
+width = "70%"
+height = "60%"
+
 [[actions]]
 id = "toggle"
 title = "Buzz: attach/detach focused pane"

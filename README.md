@@ -6,34 +6,25 @@ Herdr pane; this repo holds everything Buzz-specific. Press `prefix+y` on any pa
 Buzz channel: messages typed into the pane, everything the agent does posted back, people in the
 channel able to prompt it.
 
-## Setting up a machine
+## Install
 
-1. Herdr with the `herdr` CLI on PATH; Tailscale access to the relay.
-2. [herdr-acp](https://github.com/frankjoshua/herdr-acp) cloned to `~/development/workspace/herdr-acp`
-   and installed into its `.venv` (or point `HERDR_ACP` at the `herdr-acp` binary).
-3. Buzz: the `buzz` CLI on PATH and a built `buzz-acp` at `~/buzz/target/release/buzz-acp`
-   (or `BUZZ_ACP=<path>`). Both come from the [buzz](https://github.com/block/buzz) repo.
-4. `~/.config/buzz-acp/owner.env` (mode 0600) with your Buzz private key and the relay:
-   ```
-   BUZZ_OWNER_NSEC=nsec1...
-   BUZZ_RELAY_URL=wss://your-relay.example
-   ```
-   Optional: `~/.config/buzz-acp/members`, one pubkey per line, added to every channel the plugin
-   creates; `~/.config/buzz-acp/herdr-buzz.flags`, extra buzz-acp flags.
-5. `herdr plugin link ~/development/workspace/herdr-buzz` and the `prefix+y` binding below.
-6. Check: `python3 mint.py --selfcheck` prints your owner pubkey.
+1. Install [Buzz Desktop](https://github.com/block/buzz/releases) (the package ships the `buzz` CLI
+   and `buzz-acp`) and sign in to your relay.
+2. `herdr plugin install frankjoshua/herdr-buzz` — builds a venv with
+   [herdr-acp](https://github.com/frankjoshua/herdr-acp) inside the plugin.
+3. `herdr plugin pane open --plugin herdr-buzz --entrypoint setup` — paste your Buzz private key
+   and relay URL (kept in `~/.config/buzz-acp/owner.env`, mode 600), and let it add the
+   `prefix+y` binding.
 
-- `mint.py` — create a Buzz agent identity owned by Josh from the CLI (keypair, NIP-OA auth tag,
-  profile, bot membership). No desktop app involved. Stdlib only.
-- `tee.py` — sits between buzz-acp and herdr-acp. Reduces prompts to `who: message`; posts tool
-  calls and agent text to the channel as the agent, and pane input as the pane's owner. The pane agent needs no key, env, or
-  instructions.
-- `bin/herdr-buzz <agent> <pane> <channel>` — run `buzz-acp` + tee for one pane under that
-  identity (subscribe all, kind 9 only, relay observer).
+Optional: `~/.config/buzz-acp/members` (pubkeys added to every channel the plugin creates, one per
+line) and `~/.config/buzz-acp/herdr-buzz.flags` (extra buzz-acp flags).
 
-## As a Herdr plugin (the normal way)
+## Use
 
-`herdr plugin link ~/development/workspace/herdr-buzz` once, then in `~/.config/herdr/config.toml`:
+Focus any pane (Claude, Codex, a shell) and press `prefix+y`. The workspace label becomes the
+agent name and the channel name (channel created if missing, identity minted on first use), a
+bridge pane opens below, and the sidebar shows `claude ⇄ #<channel>` on the pane. Press
+`prefix+y` again to detach. The binding, if you'd rather add it yourself:
 
 ```toml
 [[keys.command]]
@@ -42,11 +33,8 @@ type = "plugin_action"
 command = "herdr-buzz.toggle"
 ```
 
-Focus any pane (Claude, Codex, a shell) and press `prefix+y`. The workspace label becomes the
-agent name and the channel name (channel created if missing, identity minted on first use), a
-bridge pane opens below, and the sidebar shows `claude ⇄ #<channel>` on the pane. Press
-`prefix+y` again to detach. Extra buzz-acp flags (e.g. `--respond-to anyone`) go in
-`~/.config/buzz-acp/herdr-buzz.flags`.
+Developing: `herdr plugin link <checkout>` uses the checkout in place; run `scripts/install.sh`
+once for the venv.
 
 ## By hand
 
