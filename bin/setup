@@ -12,7 +12,11 @@ echo "and posts what you type in a pane as you. Stored only in $cfg/owner.env (m
 read -r -p "nsec [${cur_nsec:+keep current}]: " nsec; nsec=${nsec:-$cur_nsec}
 read -r -p "relay URL [${cur_relay:-wss://...}]: " relay; relay=${relay:-$cur_relay}
 if [ -z "$nsec" ] || [ -z "$relay" ]; then echo "need both; nothing written"; read -r -p "enter to close"; exit 1; fi
-umask 077; printf 'BUZZ_OWNER_NSEC=%s\nBUZZ_RELAY_URL=%s\n' "$nsec" "$relay" > "$cfg/owner.env"
+umask 077; tmp=$(mktemp); printf 'BUZZ_OWNER_NSEC=%s\nBUZZ_RELAY_URL=%s\n' "$nsec" "$relay" > "$tmp"
+if ! err=$(python3 "$here/mint.py" --owner-env "$tmp" --owner-pubkey 2>&1 >/dev/null); then   # must parse as a 32-byte key
+  rm -f "$tmp"; echo "that key doesn't parse (${err##*: }); nothing written"; read -r -p "enter to close"; exit 1
+fi
+mv "$tmp" "$cfg/owner.env"
 echo; echo "checks:"
 python3 "$here/mint.py" --selfcheck | tail -1
 for b in buzz buzz-acp herdr; do command -v $b >/dev/null && echo "  $b: ok" || echo "  $b: NOT FOUND"; done

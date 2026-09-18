@@ -154,7 +154,10 @@ def parse_key(s: str) -> bytes:
         if hrp != "nsec" or len(raw) != 32:
             raise ValueError(f"expected an nsec of 32 bytes, got hrp={hrp!r} with {len(raw)} bytes")
         return raw
-    return bytes.fromhex(s)
+    raw = bytes.fromhex(s)
+    if len(raw) != 32:
+        raise ValueError(f"expected 32 bytes of hex, got {len(raw)}")
+    return raw
 
 
 # ---- NIP-OA ----------------------------------------------------------------------------
@@ -166,6 +169,7 @@ def auth_tag(owner_sec: bytes, agent_pub: bytes, conditions: str = "") -> str:
 
 # ---- the command -----------------------------------------------------------------------
 CFG = os.path.expanduser("~/.config/buzz-acp")
+OWNER_ENV = os.path.join(CFG, "owner.env")
 
 
 def _env_file(path: str) -> dict:
@@ -185,8 +189,8 @@ def _buzz(env: dict, *args: str) -> None:
         raise SystemExit(f"buzz {' '.join(args[:2])} failed: {r.stderr.strip() or r.stdout.strip()}")
 
 
-def mint(name: str, channels: list[str], about: str | None) -> str:
-    owner = _env_file(os.path.join(CFG, "owner.env"))
+def mint(name: str, channels: list[str], about: str | None, owner_env: str = OWNER_ENV) -> str:
+    owner = _env_file(owner_env)
     owner_sec = parse_key(owner["BUZZ_OWNER_NSEC"])
     relay = owner["BUZZ_RELAY_URL"]
     agent_sec = secrets.token_bytes(32)
@@ -224,8 +228,15 @@ def _selfcheck() -> None:
     assert schnorr_verify(msg, pubkey(owner), bytes.fromhex(vec)), "spec vector sig must verify"
     assert schnorr_verify(msg, pubkey(owner), bytes.fromhex(tag[3])), "our sig must verify"
     assert bech32_decode(bech32_encode("nsec", owner))[1] == owner
-    if os.path.exists(os.path.join(CFG, "owner.env")):
-        sec = parse_key(_env_file(os.path.join(CFG, "owner.env"))["BUZZ_OWNER_NSEC"])
+    for bad in ("ab" * 31, "ab" * 33):
+        try:
+            parse_key(bad)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"parse_key accepted {len(bad) // 2} bytes")
+    if os.path.exists(OWNER_ENV):
+        sec = parse_key(_env_file(OWNER_ENV)["BUZZ_OWNER_NSEC"])
         print("owner pubkey:", pubkey(sec).hex())
     print("mint ok")
 
@@ -236,15 +247,16 @@ def main() -> None:
     ap.add_argument("--channel", action="append", default=[], help="channel id to join (repeatable)")
     ap.add_argument("--about")
     ap.add_argument("--selfcheck", action="store_true")
-    ap.add_argument("--owner-pubkey", action="store_true", help="print the owner pubkey from owner.env")
+    ap.add_argument("--owner-pubkey", action="store_true", help="print the owner pubkey from the owner env")
+    ap.add_argument("--owner-env", default=OWNER_ENV, help="owner env file (BUZZ_OWNER_NSEC, BUZZ_RELAY_URL)")
     a = ap.parse_args()
     if a.selfcheck:
         return _selfcheck()
     if a.owner_pubkey:
-        return print(pubkey(parse_key(_env_file(os.path.join(CFG, "owner.env"))["BUZZ_OWNER_NSEC"])).hex())
+        return print(pubkey(parse_key(_env_file(a.owner_env)["BUZZ_OWNER_NSEC"])).hex())
     if not a.name:
         ap.error("--name required")
-    print(mint(a.name, a.channel, a.about))
+    print(mint(a.name, a.channel, a.about, a.owner_env))
 
 
 if __name__ == "__main__":

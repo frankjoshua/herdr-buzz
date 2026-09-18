@@ -5,7 +5,6 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
 pane=${HERDR_PANE_ID:?no focused pane}
 state=${HERDR_PLUGIN_STATE_DIR:-$HOME/.config/buzz-acp/bridges}; mkdir -p "$state"
-echo "$(date +%FT%T) pane=$pane ws=${HERDR_WORKSPACE_ID:-} ctx=${HERDR_PLUGIN_CONTEXT_JSON:-}" >> "$state/toggle.log"   # which pane Herdr handed us
 mark="$state/${pane//:/_}"
 
 if [ -f "$mark" ]; then                                   # detach
@@ -19,36 +18,36 @@ label=$(herdr workspace get "$ws" | python3 -c 'import json,sys; print(json.load
 name=$(printf '%s' "$label" | tr -c 'A-Za-z0-9._-' '-' | sed 's/^-*//; s/-*$//'); name=${name:-pane-${pane//:/-}}
 
 set -a; . "$HOME/.config/buzz-acp/owner.env"; set +a          # BUZZ_OWNER_NSEC + BUZZ_RELAY_URL
-export BUZZ_PRIVATE_KEY=$BUZZ_OWNER_NSEC; unset BUZZ_AUTH_TAG   # search/create/add-member as the owner
+as_owner() { env -u BUZZ_AUTH_TAG BUZZ_PRIVATE_KEY="$BUZZ_OWNER_NSEC" buzz "$@"; }   # search/create/add-member as the owner
 env_file="$HOME/.config/buzz-acp/agents/$name.env"
-channel=$( { grep -o '^BUZZ_CHANNEL=.*' "$env_file" 2>/dev/null || true; } | cut -d= -f2- | tr -d "'\"")   # pinned at mint time
-[ -n "$channel" ] || channel=$(buzz channels search --query "$name" | python3 -c '
+env_val() { { grep -o "^$1=.*" "$env_file" 2>/dev/null || true; } | cut -d= -f2- | tr -d "'\""; }
+channel=$(env_val BUZZ_CHANNEL)   # pinned at mint time
+[ -n "$channel" ] || channel=$(as_owner channels search --query "$name" | python3 -c '
 import json,sys; want=sys.argv[1]
 hits=[c for c in json.load(sys.stdin) if c["name"]==want and not c.get("archived")]
 print(hits[0]["channel_id"] if hits else "")' "$name")
 if [ -z "$channel" ]; then
-  channel=$(env -u BUZZ_AUTH_TAG BUZZ_PRIVATE_KEY="$BUZZ_OWNER_NSEC" buzz channels create --name "$name" --type stream --visibility open \
+  channel=$(as_owner channels create --name "$name" --type stream --visibility open \
     | python3 -c 'import json,sys; print(json.load(sys.stdin)["channel_id"])')
 fi
 
 if [ ! -f "$env_file" ]; then
   python3 "$here/mint.py" --name "$name" --channel "$channel" >/dev/null
 else                                                      # make sure it's in this channel as a bot
-  . "$env_file"
-  env -u BUZZ_AUTH_TAG BUZZ_PRIVATE_KEY="$BUZZ_OWNER_NSEC" buzz channels add-member --channel "$channel" --pubkey "$BUZZ_PUBLIC_KEY" --role bot >/dev/null 2>&1 || true
+  as_owner channels add-member --channel "$channel" --pubkey "$(env_val BUZZ_PUBLIC_KEY)" --role bot >/dev/null 2>&1 || true
   grep -q '^BUZZ_CHANNEL=' "$env_file" || echo "BUZZ_CHANNEL='$channel'" >> "$env_file"
 fi
 # people who should be in every bridged channel: one pubkey per line in ~/.config/buzz-acp/members
 while read -r pk; do
   pk=${pk%%#*}; pk=${pk// /}; [ -n "$pk" ] || continue
-  env -u BUZZ_AUTH_TAG BUZZ_PRIVATE_KEY="$BUZZ_OWNER_NSEC" buzz channels add-member --channel "$channel" --pubkey "$pk" --role member >/dev/null 2>&1 || true
+  as_owner channels add-member --channel "$channel" --pubkey "$pk" --role member >/dev/null 2>&1 || true
 done < <(cat "$HOME/.config/buzz-acp/members" 2>/dev/null)
 
 bridge=$(herdr pane split "$pane" --direction down --ratio 0.95 --cwd "$here" \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["pane"]["pane_id"])')
 herdr pane rename "$bridge" "buzz: #$name" >/dev/null 2>&1 || true
 flags=$(cat "$HOME/.config/buzz-acp/herdr-buzz.flags" 2>/dev/null || true)   # e.g. --respond-to anyone
-herdr pane run "$bridge" "exec $here/bin/herdr-buzz $name $pane $channel $flags 2>&1 | grep --line-buffered -E 'turn (starting|complete)|tee:|ERROR|WARN|presence set'"
+herdr pane run "$bridge" "exec $here/bin/herdr-buzz $name $pane $channel $flags 2>&1 | grep --line-buffered -iE 'turn (starting|complete)|tee:|ERROR|WARN|presence set|Traceback|Error'"
 agent=$(herdr pane get "$pane" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["pane"].get("agent") or "shell")')
 herdr pane report-metadata "$pane" --source herdr-buzz --display-agent "$agent ⇄ #$name" --token "buzz=#$name" >/dev/null 2>&1 || true
 echo "$bridge" > "$mark"

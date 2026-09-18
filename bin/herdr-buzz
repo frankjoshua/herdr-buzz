@@ -7,12 +7,12 @@
 # --respond-to owner-only after the channel id to restrict it.
 set -euo pipefail
 name=$1; pane=$2; channel=$3; shift 3
+case " $* " in *" --respond-to "*) ;; *) set -- --respond-to anyone "$@" ;; esac   # default gate unless the caller chose one
 set -a; . "$HOME/.config/buzz-acp/agents/$name.env"; . "$HOME/.config/buzz-acp/owner.env" 2>/dev/null || true; set +a   # owner nsec: pane input posts as the owner
 here=$(cd "$(dirname "$0")/.." && pwd)
 export BUZZ_OWNER_PUBKEY=${BUZZ_OWNER_PUBKEY:-$(python3 "$here/mint.py" --owner-pubkey 2>/dev/null || true)}   # owner's own messages stay unlabeled
-# herdr-acp: the plugin's own venv (scripts/install.sh), else a dev checkout, else $HERDR_ACP
-[ -n "${HERDR_ACP:-}" ] || { [ -x "$here/.venv/bin/herdr-acp" ] && export HERDR_ACP="$here/.venv/bin/herdr-acp" || true; }
+# herdr-acp: $HERDR_ACP if set, else the plugin's own venv (tee.py's default; scripts/install.sh)
 exec "${BUZZ_ACP:-$(command -v buzz-acp || echo "$HOME/buzz/target/release/buzz-acp")}" \
   --agent-command python3 --agent-args="$here/tee.py,--channel,$channel,--pane,$pane" \
-  --channels "$channel" --subscribe all --kinds 9 --no-mention-filter --relay-observer --respond-to anyone \
+  --channels "$channel" --subscribe all --kinds 9 --no-mention-filter --relay-observer \
   --idle-timeout 120 --multiple-event-handling queue "$@"
