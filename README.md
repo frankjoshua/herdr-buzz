@@ -21,8 +21,9 @@ line) and `~/.config/buzz-acp/herdr-buzz.flags` (extra buzz-acp flags).
 
 ## Use
 
-Focus any pane (Claude, Codex, OMP, a shell) and press `prefix+y`. A small popup shows the pane's
-bridge: attached or not, the agent and channel, the log tail, and the controls:
+Focus any pane (Claude, Codex, OMP, a shell) and press `prefix+y`. If the pane isn't bridged yet,
+that attaches it. If it is, a small popup shows the bridge: status, agent and channel, the log tail,
+and the controls:
 
 ```
 [a] attach   [d] detach   [x] detach + delete channel   [l] full log   [r] refresh   [q] close

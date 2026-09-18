@@ -8,7 +8,8 @@ b="$here/bin/bridge"
 while :; do
   clear
   echo "herdr-buzz · pane $pane"; echo
-  "$b" status "$pane" 2>&1 | sed 's/^/  /'
+  green=$(tput setaf 2 2>/dev/null); red=$(tput setaf 1 2>/dev/null); off=$(tput sgr0 2>/dev/null)
+  "$b" status "$pane" 2>&1 | sed "1s/^attached$/${green}● attached${off}/; 1s/^detached$/${red}○ detached${off}/; s/^/  /"
   log=$("$b" log "$pane"); echo; echo "  log tail:"; tail -n 8 "$log" 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | grep -v "acp::thought" | cut -c1-"$(( $(tput cols 2>/dev/null || echo 100) - 4 ))" | sed 's/^/    /'
   echo; echo "  [a] attach   [d] detach   [x] detach + delete channel   [l] full log   [r] refresh   [q] close"
   read -rsn1 k
