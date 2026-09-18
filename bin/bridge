@@ -36,6 +36,7 @@ detach)
     fi
     rm -f "$mark"
   fi
+  herdr pane report-metadata "$pane" --source herdr-buzz --clear-token buzz >/dev/null 2>&1 || true
   echo "detached"
   ;;
 attach)
@@ -63,6 +64,7 @@ print(hits[0]["channel_id"] if hits else "")' "$name")
   # shellcheck disable=SC2086
   setsid bash -c "exec \"$here/bin/herdr-buzz\" \"$name\" \"$pane\" \"$channel\" $flags" >"$log" 2>&1 < /dev/null &
   echo $! > "$mark"
+  herdr pane report-metadata "$pane" --source herdr-buzz --token "buzz=⇄ #$name" >/dev/null 2>&1 || true   # sidebar row: $buzz
   echo "attached to #$name"
   ;;
 delete)

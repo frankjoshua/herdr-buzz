@@ -26,4 +26,15 @@ if ! grep -q 'herdr-buzz.toggle' "$conf" 2>/dev/null; then
   echo; read -r -p "Add the prefix+y binding to $conf? [Y/n] " yn
   case "${yn:-Y}" in [Yy]*) printf '\n# herdr-buzz: attach/detach the focused pane to a Buzz channel\n[[keys.command]]\nkey = "prefix+y"\ntype = "plugin_action"\ncommand = "herdr-buzz.toggle"\ndescription = "Buzz: attach/detach focused pane"\n' >> "$conf"; herdr server reload-config >/dev/null 2>&1 && echo "  bound prefix+y";; esac
 fi
+if ! grep -q '\$buzz' "$conf" 2>/dev/null; then
+  echo; read -r -p "Show '⇄ #channel' under bridged agents in the sidebar (adds a \$buzz row to [ui.sidebar.agents])? [Y/n] " yn
+  case "${yn:-Y}" in [Yy]*) python3 - "$conf" <<'PY'
+import re,sys; p=sys.argv[1]; s=open(p).read()
+m=re.search(r"\[ui\.sidebar\.agents\]\s*\nrows = \[", s)
+if m: s=s[:m.end()]+'\n  [{ token = "$buzz", fg = "#f0a72a" }],'+s[m.end():]
+else: s+='\n[ui.sidebar.agents]\nrows = [\n  ["state_icon", "workspace", "tab"],\n  ["agent"],\n  [{ token = "$buzz", fg = "#f0a72a" }],\n]\n'
+open(p,"w").write(s)
+PY
+    herdr server reload-config >/dev/null 2>&1 && echo "  sidebar row added";; esac
+fi
 echo; echo "done. Focus an agent pane and press prefix+y."; read -r -p "enter to close"

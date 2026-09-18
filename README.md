@@ -30,7 +30,9 @@ bridge: attached or not, the agent and channel, the log tail, and the controls:
 
 Attaching names the agent and the channel after the workspace label (channel created if missing,
 identity minted on first use, people from `~/.config/buzz-acp/members` added) and runs the bridge
-in the background; no pane is taken. Closing the agent pane stops its bridge. Logs live in the
+in the background; no pane is taken. A `⇄ #channel` row appears under the agent in the sidebar
+(setup adds the `$buzz` row to `[ui.sidebar.agents]` in your Herdr config). Closing the agent pane
+stops its bridge. Logs live in the
 plugin's state dir. Extra buzz-acp flags (e.g. `--respond-to owner-only`) go in
 `~/.config/buzz-acp/herdr-buzz.flags`. The binding, if you'd rather add it yourself:
 
