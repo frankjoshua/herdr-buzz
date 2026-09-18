@@ -1,4 +1,4 @@
-"""Mint a Buzz agent identity owned by Josh, with no desktop involved. (herdr-buzz)
+"""Mint a Buzz agent identity owned by you, with no desktop app involved.
 
     python mint.py --name <agent-name> [--channel <id>]...
 

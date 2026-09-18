@@ -3,7 +3,7 @@
     buzz-acp --agent-command python --agent-args=tee.py,--channel,<id>,--pane,<pane>
 
 Downstream (buzz-acp → herdr-acp): every JSON-RPC line is forwarded unchanged, except
-`session/prompt`, whose text is reduced to just the humans' messages ("josh: hello") so the
+`session/prompt`, whose text is reduced to just the humans' messages ("alice: hello") so the
 agent burns no context on Buzz's routing boilerplate.
 Upstream (herdr-acp → buzz-acp): every line is forwarded unchanged so buzz-acp keeps its typing
 indicator and observer feed; on the side, everything the pane does (humans typing in it, the
@@ -32,7 +32,7 @@ PANE_INPUT = "{text}"          # a human typing in the pane: posted AS the pane'
 TITLE_MAX = 120
 TEE_SESSION = "tee-session"    # id of the session/new the tee sends on the client's behalf
 
-# buzz-acp's prompt, one block per event:  "From: josh (npub…, hex: …)\n…\nContent: <text>\nTags: […]"
+# buzz-acp's prompt, one block per event:  "From: alice (npub…, hex: …)\n…\nContent: <text>\nTags: […]"
 EVENT = re.compile(r"^From: (\S+)(?:[^\n]*hex: ([0-9a-f]{64}))?[^\n]*\n.*?^Content: ?(.*?)\n(?:Tags:|\Z)", re.S | re.M)
 
 
@@ -233,15 +233,15 @@ def _selfcheck() -> None:
     p = ["[Base] You are operating inside the Buzz platform…",
          "[Context]\nScope: channel\nChannel: t (#abc)\nHint: blah\nIMPORTANT: use --reply-to x",
          "[Buzz events — 2 events]\n\n--- Event 1 (all) ---\nEvent ID: e1\nChannel: t\nKind: 9\n"
-         "From: josh (npub1x, hex: " + "a0" * 32 + ")\nTime: now\nContent: hello\nthere\nTags: [[\"h\",\"abc\"]]\n\n"
-         "--- Event 2 (all) ---\nFrom: sam (hex: b1)\nTime: now\nContent: run pwd\nTags: []\n"]
-    josh, sam = ("josh", "a0" * 32, "hello\nthere"), ("sam", "", "run pwd")
-    assert events_of(p) == [josh, sam], repr(events_of(p))
-    assert render_events([josh, sam], "") == ["josh: hello\nthere\n\nsam: run pwd"]
-    owner = "a0" * 32  # josh owns the pane: no label for him, label for sam
-    assert render_events([josh, sam], owner) == ["hello\nthere\n\nsam: run pwd"]
-    assert drop_echoes(p, []) == [josh, sam]
-    assert drop_echoes(p, ["hello\nthere"]) == [sam]  # our echo dropped, sam kept
+         "From: alice (npub1x, hex: " + "a0" * 32 + ")\nTime: now\nContent: hello\nthere\nTags: [[\"h\",\"abc\"]]\n\n"
+         "--- Event 2 (all) ---\nFrom: bob (hex: b1)\nTime: now\nContent: run pwd\nTags: []\n"]
+    alice, bob = ("alice", "a0" * 32, "hello\nthere"), ("bob", "", "run pwd")
+    assert events_of(p) == [alice, bob], repr(events_of(p))
+    assert render_events([alice, bob], "") == ["alice: hello\nthere\n\nbob: run pwd"]
+    owner = "a0" * 32  # alice owns the pane: no label for her, label for bob
+    assert render_events([alice, bob], owner) == ["hello\nthere\n\nbob: run pwd"]
+    assert drop_echoes(p, []) == [alice, bob]
+    assert drop_echoes(p, ["hello\nthere"]) == [bob]  # our echo dropped, bob kept
     assert drop_echoes(p, ["hello\nthere", "run pwd"]) is None  # all echo: end_turn, never reaches the pane
     assert drop_echoes(["plain heartbeat"], ["x"]) == []  # no event: forwarded unchanged
     r = Renderer(tools=True)
@@ -287,7 +287,7 @@ def _selfcheck() -> None:
     # a real prompt is reduced (owner unlabeled), or forwarded verbatim under --raw-prompt
     t, to_child, _ = tee()
     t.downstream(io.BytesIO(prompt(3, p)))
-    assert [b["text"] for b in to_child.lines()[0]["params"]["prompt"]] == ["hello\nthere\n\nsam: run pwd"], to_child.lines()
+    assert [b["text"] for b in to_child.lines()[0]["params"]["prompt"]] == ["hello\nthere\n\nbob: run pwd"], to_child.lines()
     t, to_child, _ = tee(raw=True)
     t.downstream(io.BytesIO(prompt(3, p)))
     assert [b["text"] for b in to_child.lines()[0]["params"]["prompt"]] == p

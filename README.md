@@ -39,7 +39,7 @@ once for the venv.
 ## By hand
 
 ```
-# once: Josh's owner nsec in ~/.config/buzz-acp/owner.env  (BUZZ_OWNER_NSEC=nsec1..., 0600)
+# once: your owner nsec in ~/.config/buzz-acp/owner.env  (BUZZ_OWNER_NSEC=nsec1..., 0600)
 python mint.py --name <agent> --channel <channel-id>
 # bridge pane:
 bin/herdr-buzz <agent> <pane-id> <channel-id>
