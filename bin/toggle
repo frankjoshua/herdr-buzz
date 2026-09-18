@@ -4,4 +4,4 @@
 set -euo pipefail
 state=${HERDR_PLUGIN_STATE_DIR:-$HOME/.local/state/herdr/plugins/herdr-buzz}; mkdir -p "$state"
 echo "${HERDR_PANE_ID:?no focused pane}" > "$state/menu.target"
-exec herdr plugin pane open --plugin herdr-buzz --entrypoint menu --placement popup --target-pane "$HERDR_PANE_ID"
+exec herdr plugin pane open --plugin herdr-buzz --entrypoint menu --placement popup
