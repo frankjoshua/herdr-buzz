@@ -3,8 +3,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 python3 -m venv .venv
-.venv/bin/pip install -q --upgrade "git+https://github.com/frankjoshua/herdr-acp" \
-  || .venv/bin/pip install -q --upgrade "git+ssh://git@github.com/frankjoshua/herdr-acp"
+# --force-reinstall: pip treats an unchanged version from a git URL as already satisfied and keeps the old commit.
+.venv/bin/pip install -q --force-reinstall "git+https://github.com/frankjoshua/herdr-acp" \
+  || .venv/bin/pip install -q --force-reinstall "git+ssh://git@github.com/frankjoshua/herdr-acp"
 .venv/bin/herdr-acp --help >/dev/null && echo "herdr-acp: ok (.venv)"
 for b in buzz buzz-acp; do
   command -v "$b" >/dev/null && echo "$b: $(command -v "$b")" \
