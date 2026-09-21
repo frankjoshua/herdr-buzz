@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # The bridge engine, one pane at a time. No visible pane: buzz-acp runs in the background with
-# its log in the plugin state dir. Used by bin/menu (the prefix+y popup) and bin/on-pane-closed.
+# its log in the plugin state dir. Used by bin/menu (the prefix+y popup) and bin/on-closed.
 #   bridge attach|detach|delete|status|log <pane-id>
+#   bridge reap                 # stop every bridge whose pane herdr no longer has
 set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
-cmd=${1:?attach|detach|delete|status|log}; pane=${2:?pane id}
+cmd=${1:?attach|detach|delete|status|log|reap}; pane=${2:-}
+[ "$cmd" = reap ] || [ -n "$pane" ] || { echo "usage: bridge $cmd <pane-id>" >&2; exit 2; }
 state=${HERDR_PLUGIN_STATE_DIR:-$HOME/.local/state/herdr/plugins/herdr-buzz}; mkdir -p "$state"
 key=${pane//:/_}; mark="$state/$key"; log="$state/$key.log"
 cfg="$HOME/.config/buzz-acp"
@@ -16,7 +18,11 @@ agent_name() {  # workspace label → agent/channel name
 }
 env_val() { { grep -o "^$2=.*" "$cfg/agents/$1.env" 2>/dev/null || true; } | cut -d= -f2- | tr -d "'\""; }
 as_owner() { env -u BUZZ_AUTH_TAG BUZZ_PRIVATE_KEY="$BUZZ_OWNER_NSEC" buzz "$@"; }
-alive() { [ -f "$mark" ] && kill -0 "$(cat "$mark")" 2>/dev/null; }
+# A process is this pane's bridge when its argv names the pane as a whole token (buzz-acp's
+# --agent-args=...,--pane,<pane>; tee.py/herdr-acp --pane <pane>). A reused pid never matches.
+ours() { ps -o args= -p "$1" 2>/dev/null | grep -Eq -- "(^|[^A-Za-z0-9:])$pane([^A-Za-z0-9:]|$)"; }
+alive() { [ -f "$mark" ] && { pid=$(cat "$mark"); case "$pid" in ''|*[!0-9]*) return 1;; esac; ours "$pid"; }; }
+note() { echo "$(date -u +%FT%TZ) herdr-buzz: $*" >> "$log"; }
 
 case "$cmd" in
 status)
@@ -26,13 +32,24 @@ status)
   ;;
 log) echo "$log" ;;
 detach)
+  why=${3:-requested}
   if [ -f "$mark" ]; then
     pid=$(cat "$mark")
     case "$pid" in *:*) herdr pane close "$pid" >/dev/null 2>&1 || true; pid="" ;; esac   # pre-popup marks held a bridge pane id
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-      kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true   # buzz-acp finishes in-flight turns
+    if [ -n "$pid" ] && ours "$pid"; then
+      note "detach ($why): stopping bridge session $pid"
+      kill -TERM "$pid" 2>/dev/null || true                                   # buzz-acp finishes in-flight turns
       for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
-      kill -KILL -- "-$pid" 2>/dev/null || true
+      # buzz-acp starts its agent in a process group of its own, so tee.py and herdr-acp outlive a
+      # group kill: sweep the whole session (`setsid` made buzz-acp its leader), only our own processes.
+      for sig in TERM KILL; do
+        left=""
+        for p in $(pgrep -s "$pid" 2>/dev/null || true); do ours "$p" && { kill "-$sig" "$p" 2>/dev/null || true; left="$left $p"; }; done
+        [ -n "$left" ] || break
+        sleep 0.5
+      done
+    elif [ -n "$pid" ]; then
+      note "detach ($why): pid $pid is not this pane's bridge (exited or reused), mark dropped"
     fi
     rm -f "$mark"
   fi
@@ -62,7 +79,8 @@ print(hits[0]["channel_id"] if hits else "")' "$name")
   done < <(cat "$cfg/members" 2>/dev/null)
   flags=$(cat "$cfg/herdr-buzz.flags" 2>/dev/null || true)          # e.g. --respond-to owner-only
   # shellcheck disable=SC2086
-  setsid bash -c "exec \"$here/bin/herdr-buzz\" \"$name\" \"$pane\" \"$channel\" $flags" >"$log" 2>&1 < /dev/null &
+  : > "$log"   # fresh log per attach; the bridge appends (O_APPEND) so detach's notes are not overwritten
+  setsid bash -c "exec \"$here/bin/herdr-buzz\" \"$name\" \"$pane\" \"$channel\" $flags" >>"$log" 2>&1 < /dev/null &
   echo $! > "$mark"
   herdr pane report-metadata "$pane" --source herdr-buzz --token "buzz=⇄ #$name" >/dev/null 2>&1 || true   # sidebar row: $buzz
   echo "attached to #$name"
@@ -76,6 +94,21 @@ delete)
   as_owner channels delete --channel "$channel" >/dev/null
   sed -i '/^BUZZ_CHANNEL=/d' "$cfg/agents/$name.env" 2>/dev/null || true
   echo "deleted #$name ($channel)"
+  ;;
+reap)
+  # herdr emits pane.closed only for a direct pane close; a tab or workspace close takes its panes
+  # silently, so every close event sweeps all marks. Only an explicit pane_not_found detaches: a
+  # server that is down or slow (any other error) leaves live bridges alone.
+  for m in "$state"/*_p*; do
+    [ -f "$m" ] || continue
+    case "$m" in *.log) continue ;; esac
+    p=$(basename "$m"); p=${p/_/:}
+    code=$(herdr pane get "$p" 2>&1 >/dev/null | python3 -c '
+import json, sys
+try: print((json.load(sys.stdin).get("error") or {}).get("code", ""))
+except Exception: print("")' 2>/dev/null || true)
+    if [ "$code" = pane_not_found ]; then "$0" detach "$p" "pane gone" >/dev/null; echo "reaped $p"; fi
+  done
   ;;
 *) echo "unknown command $cmd" >&2; exit 2 ;;
 esac

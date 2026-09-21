@@ -32,4 +32,12 @@ command = ["bash", "bin/toggle"]
 
 [[events]]
 on = "pane.closed"
-command = ["bash", "bin/on-pane-closed"]
+command = ["bash", "bin/on-closed"]
+
+[[events]]
+on = "tab.closed"
+command = ["bash", "bin/on-closed"]
+
+[[events]]
+on = "workspace.closed"
+command = ["bash", "bin/on-closed"]
