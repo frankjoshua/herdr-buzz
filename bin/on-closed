@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Herdr event hook for pane.closed, tab.closed and workspace.closed: a bridged pane may be gone.
+# Only pane.closed names the pane. Herdr (0.8.2) emits no pane.closed for the panes a tab or
+# workspace close takes with it, which is how a bridge outlived its pane for days; so every close
+# also sweeps all marks (`bridge reap`) and stops the bridges whose pane herdr no longer has.
+set -euo pipefail
+here=$(cd "$(dirname "$0")/.." && pwd)
+state=${HERDR_PLUGIN_STATE_DIR:-$HOME/.local/state/herdr/plugins/herdr-buzz}
+pane=$(printf '%s' "${HERDR_PLUGIN_EVENT_JSON:-}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print((d.get("data") or d).get("pane_id",""))' 2>/dev/null || true)
+if [ -n "$pane" ] && [ -f "$state/${pane//:/_}" ]; then "$here/bin/bridge" detach "$pane" "pane.closed" >/dev/null; fi
+exec "$here/bin/bridge" reap

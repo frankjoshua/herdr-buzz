@@ -34,6 +34,15 @@
   placement `popup`) for the focused pane with status, log tail and controls; the action relays the
   focused pane id through `menu.target` because a plugin pane gets no target pane of its own.
   A `pane.closed` event detaches. The sidebar decoration was dropped: it did not render for Josh.
+- **Any close reaps** (2026-09-21, CIO-62). Herdr 0.8.2 emits `pane.closed` only for a direct pane close;
+  a tab or workspace close (and a worktree removal, which closes the workspace) emits just `tab.closed` /
+  `workspace.closed` with no per-pane event — verified on the live socket. So a bridged pane closed with its
+  workspace kept its bridge, and herdr-acp polled the dead pane twice a second for days (w5B, 38 MB log).
+  Now `bin/on-closed` hooks all three events and `bridge reap` sweeps every mark: a pane that herdr answers
+  `pane_not_found` for is detached; any other error (server down) is transient and leaves the bridge alone.
+  `detach` also stops the whole `setsid` session, not the leader's process group — buzz-acp starts its
+  agent in a process group of its own, so tee.py/herdr-acp used to outlive a group kill — and only kills
+  processes whose argv names the pane, so a reused pid is never touched (the mark is just dropped).
 
 ## Buzz UI facts (learned the hard way)
 - "View activity" (owner-only tool-call/thought transcript) only appears on members whose channel

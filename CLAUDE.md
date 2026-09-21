@@ -19,8 +19,9 @@ Buzz messages as the owner during tests; mint a throwaway identity.
 - `bin/bridge attach|detach|delete|status|log <pane>` — the engine: channel named after the
   workspace (created if missing), identity minted on first use, members added, buzz-acp started
   in the background (`setsid`, pid in the state dir, log beside it). `delete` = detach + delete
-  the pinned channel. `bin/menu` is the `prefix+y` popup over it; `bin/toggle` is the `prefix+y` action:
-  attach when detached, otherwise open the popup; `bin/on-pane-closed` detaches when the pane goes away.
+  the pinned channel; `reap` stops every bridge whose pane herdr no longer has. `bin/menu` is the `prefix+y`
+  popup over it; `bin/toggle` is the `prefix+y` action: attach when detached, otherwise open the popup;
+  `bin/on-closed` runs on `pane.closed`, `tab.closed` and `workspace.closed` and reaps.
 
 Config lives in `~/.config/buzz-acp/`: `owner.env` (the owner's nsec, never committed), `agents/*.env`
 (minted identities, `BUZZ_CHANNEL` pinned per agent), `members`, `herdr-buzz.flags`.
