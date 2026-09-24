@@ -53,3 +53,35 @@
      `mint.py` signs the tag itself (BIP-340 in stdlib Python, checked against the NIP-OA test
      vector).
 
+
+## Reply-post failures on w24:p1 (CIO-62, 2026-09-24)
+- **Two paths, one hostname.** Read: buzz-acp's WebSocket `wss://nostr-relay.stork-spica.ts.net`.
+  Posting: `tee.py` → `buzz messages send` → `POST https://nostr-relay.stork-spica.ts.net/events`
+  (NIP-98, one HTTPS call per post when the text has no `@`, up to 3 attempts). Both come from
+  `BUZZ_RELAY_URL` in `owner.env`/`agents/<name>.env`. The relay (tailscaled serve on
+  100.103.219.102:443 → :3000) logs every HTTP post with pubkey and status (`docker logs
+  buzz-prod-relay-1 | grep "HTTP bridge request"`). That log is the ground truth: 3,509 posts from
+  the CTO key were accepted between 2026-09-22 14:40Z and 2026-09-24 00:00Z. The tee logs failures
+  only, so a log with no successful posts in it does not mean nothing was delivered.
+- **`UnrecognisedName` is not the relay.** The relay's tailscaled answers a wrong SNI with
+  `internal_error` and logged no handshake errors that day. When the tailnet's DNS for
+  `stork-spica.ts.net` goes away, glibc (`hosts: … dns`) retries the name with the search list.
+  `tesseractmobile.net` is on that list and has a wildcard record, so
+  `nostr-relay.stork-spica.ts.net.tesseractmobile.net` resolves to the office WAN
+  (24.241.106.254), which rejects the SNI with alert 112. You can reproduce it without sending
+  anything: `getent ahostsv4 no-such-node.stork-spica.ts.net` returns 24.241.106.254.
+  On 2026-09-22 at 15:23:09Z an agent ran `tailscale switch` on the primary daemon (the stork
+  tailnet), and the switch lasted 51 s. The relay shows no posts between 15:22:55Z and 15:24:06Z,
+  and buzz-acp's pong timed out in the same window. The real fix is on the host (the search
+  domain or the wildcard record), not in this repo.
+- **The 429s came from a replay.** At 23:49:20Z on 2026-09-23 someone ran `omp --resume` in the
+  pane. herdr-acp built its PiSession before OMP had opened the session file, found the file
+  later and read it from byte 0. That replayed 1,661 agent and 20 owner messages, about 300
+  posts/min for 6 minutes. The relay's HTTP admission is `LimitType::ApiCalls` per pubkey per
+  60 s fixed window (Redis INCR; rejected calls count but do not extend the window).
+  The limit is `BUZZ_RATE_LIMIT_HUMAN_API_CALLS_PER_MIN`, default 300, and the deployment does
+  not override it. The CTO key got 20 rejections, the owner key none. TLS failures never reach
+  the relay, so they spend no quota. The fix belongs in herdr-acp (`reader.py`: when a session
+  is found after the reader was built, start at the first line stamped after the process
+  start). It is not a tee-side throttle.
+- The tee's failure line now carries a UTC timestamp and the identity (`as agent`/`as owner`).

@@ -21,6 +21,7 @@ import re
 import subprocess
 import sys
 import threading
+from datetime import datetime, timezone
 
 # ---- what gets posted (edit freely) ----------------------------------------------------
 TOOL_START = "▸ {title}"
@@ -104,7 +105,7 @@ class Poster:
 
     def post(self, text: str) -> None:
         """As the agent."""
-        self._put(text, dict(os.environ))
+        self._put(text, dict(os.environ), "agent")
 
     def post_as_owner(self, text: str) -> None:
         """As the pane's owner: their own key, no agent auth tag. As the agent when no owner key is set."""
@@ -112,25 +113,27 @@ class Poster:
             return self.post(text)
         env = {**os.environ, "BUZZ_PRIVATE_KEY": self.owner}
         env.pop("BUZZ_AUTH_TAG", None)
-        if self._put(text, env):
+        if self._put(text, env, "owner"):
             self.echoes = (self.echoes + [text.strip()])[-20:]
 
-    def _put(self, text: str, env: dict) -> bool:
+    def _put(self, text: str, env: dict, who: str) -> bool:
         if not text.strip():
             return False
-        self.q.put((text, env))
+        self.q.put((text, env, who))
         return True
 
     def _run(self) -> None:
         while True:
-            text, env = self.q.get()
+            text, env, who = self.q.get()
             try:
                 r = subprocess.run(["buzz", "messages", "send", "--channel", self.channel, "--content", "-"],
                                    input=text, capture_output=True, text=True, env=env)
                 if r.returncode:
                     raise RuntimeError(r.stderr.strip()[:300])
             except Exception as e:  # the thread must outlive a missing/broken `buzz`
-                print(f"tee: post failed: {e}", file=sys.stderr, flush=True)
+                # stamped and attributed: the relay's quota is per key, and these lines sit among buzz-acp's timed ones
+                at = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+                print(f"{at} tee: post failed as {who}: {e}", file=sys.stderr, flush=True)
 
 
 class Tee:
