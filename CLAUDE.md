@@ -23,6 +23,8 @@ Buzz messages as the owner during tests; mint a throwaway identity.
   then the running `agent:`/`channel:`. The state files are private; keep them that way.
   `bin/menu` is the `prefix+y` popup over it; `bin/toggle` is the `prefix+y` action:
   attach when detached, otherwise open the popup; `bin/on-pane-closed` detaches when the pane goes away.
+- `skills/buzz-messaging/SKILL.md` — the agent-facing skill (portable; installed copies elsewhere are
+  copies of this one, so edit here and recopy). Keep it in step with `bridge status` and the tee's prompt format.
 
 Config lives in `~/.config/buzz-acp/`: `owner.env` (the owner's nsec, never committed), `agents/*.env`
 (minted identities, `BUZZ_CHANNEL` pinned per agent), `members`, `herdr-buzz.flags`.

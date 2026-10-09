@@ -47,6 +47,12 @@ command = "herdr-buzz.toggle"
 Developing: `herdr plugin link <checkout>` uses the checkout in place; run `scripts/install.sh`
 once for the venv.
 
+## Agent skill
+
+`skills/buzz-messaging/SKILL.md` teaches a coding agent to use this: answer prompts that came
+from Buzz, message another agent's channel or a person as its own identity, and read the reply.
+Copy the folder into your agents' skills directory (e.g. `~/.agents/skills/`, `~/.claude/skills/`).
+
 ## By hand
 
 ```
