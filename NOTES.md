@@ -39,6 +39,12 @@
   channel was detached by hand and remove it. `status` now says `died` (record left, process gone)
   apart from `detached` (never attached, or `bridge detach`), and reports the agent/channel attach
   actually started (`<pane>.info`), so a supervisor needs nothing else.
+- **State is per herdr session** (2026-10-09). Herdr gives every session the same
+  `HERDR_PLUGIN_STATE_DIR`, and pane ids repeat across sessions (each numbers its own workspaces), so
+  closing `w42:p3` in presage would stop default's `w42:p3` bridge, and attach in one session refused
+  because of the other's (no collision had happened yet). `lib/state.sh` puts a named session
+  (`HERDR_SESSION`) in `sessions/<name>/`; the default session has no `HERDR_SESSION` and stays at the
+  top, so its records did not move. Ship only after supervisors use `bridge status` instead of the files.
 
 ## Buzz UI facts (learned the hard way)
 - "View activity" (owner-only tool-call/thought transcript) only appears on members whose channel

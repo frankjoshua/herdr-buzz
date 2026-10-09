@@ -6,7 +6,7 @@
 set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
 cmd=${1:?attach|detach|delete|status|log}; pane=${2:?pane id}
-state=${HERDR_PLUGIN_STATE_DIR:-$HOME/.local/state/herdr/plugins/herdr-buzz}; mkdir -p "$state"
+. "$here/lib/state.sh"
 key=${pane//:/_}; mark="$state/$key"; info="$state/$key.info"; log="$state/$key.log"
 cfg="$HOME/.config/buzz-acp"
 

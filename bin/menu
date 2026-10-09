@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The prefix+y popup: status, log tail, and controls for one pane (the one prefix+y was pressed in).
 here=$(cd "$(dirname "$0")/.." && pwd)
-state=${HERDR_PLUGIN_STATE_DIR:-$HOME/.local/state/herdr/plugins/herdr-buzz}
+. "$here/lib/state.sh"
 pane=${1:-$(cat "$state/menu.target" 2>/dev/null)}
 [ -n "$pane" ] || { echo "no target pane"; read -rsn1; exit 1; }
 b="$here/bin/bridge"

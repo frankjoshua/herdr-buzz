@@ -3,7 +3,7 @@
 # the controls. (Kept the id "toggle" so the existing keybinding keeps working.)
 set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
-state=${HERDR_PLUGIN_STATE_DIR:-$HOME/.local/state/herdr/plugins/herdr-buzz}; mkdir -p "$state"
+. "$here/lib/state.sh"
 pane=${HERDR_PANE_ID:?no focused pane}
 # Not attached yet: just attach. Attached: open the popup with the controls.
 if [ "$("$here/bin/bridge" status "$pane" | head -1)" != "attached" ]; then

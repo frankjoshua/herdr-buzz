@@ -34,7 +34,7 @@ identity minted on first use, people from `~/.config/buzz-acp/members` added) an
 in the background; no pane is taken. A `⇄ #channel` row appears under the agent in the sidebar
 (setup adds the `$buzz` row to `[ui.sidebar.agents]` in your Herdr config). Closing the agent pane
 stops its bridge. Logs live in the
-plugin's state dir. Extra buzz-acp flags (e.g. `--respond-to owner-only`) go in
+plugin's state dir (a named herdr session's in `sessions/<name>/` below it). Extra buzz-acp flags (e.g. `--respond-to owner-only`) go in
 `~/.config/buzz-acp/herdr-buzz.flags`. The binding, if you'd rather add it yourself:
 
 ```toml
