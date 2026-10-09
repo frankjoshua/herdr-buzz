@@ -14,12 +14,19 @@ cfg="$HOME/.config/buzz-acp"
 agent_name() {
   [ -n "${BUZZ_AGENT_NAME:-}" ] && { echo "$BUZZ_AGENT_NAME"; return; }
   local ws=${pane%%:*} label
-  label=$(herdr workspace get "$ws" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["workspace"]["label"])')
+  label=$(herdr workspace get "$ws" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["workspace"]["label"])' 2>/dev/null) || label=""
   label=$(printf '%s' "$label" | tr -c 'A-Za-z0-9._-' '-' | sed 's/^-*//; s/-*$//'); echo "${label:-pane-${pane//:/-}}"
 }
 env_val() { { grep -o "^$2=.*" "$cfg/agents/$1.env" 2>/dev/null || true; } | cut -d= -f2- | tr -d "'\""; }
 as_owner() { env -u BUZZ_AUTH_TAG BUZZ_PRIVATE_KEY="$BUZZ_OWNER_NSEC" buzz "$@"; }
-alive() { [ -f "$mark" ] && kill -0 "$(cat "$mark")" 2>/dev/null; }
+# The mark: line 1 the bridge's pid, line 2 its start time, so a pid reused after a reboot is not
+# taken for the bridge (by status, attach, or detach's kill). Marks without line 2 predate this.
+started() { ps -o lstart= -p "$1" 2>/dev/null; }
+alive() {
+  [ -f "$mark" ] || return 1
+  local pid want; pid=$(head -n1 "$mark"); want=$(sed -n 2p "$mark")
+  kill -0 "$pid" 2>/dev/null && { [ -z "$want" ] || [ "$(started "$pid")" = "$want" ]; }
+}
 
 case "$cmd" in
 status)
@@ -33,9 +40,9 @@ status)
 log) echo "$log" ;;
 detach)
   if [ -f "$mark" ]; then
-    pid=$(cat "$mark")
+    pid=$(head -n1 "$mark")
     case "$pid" in *:*) herdr pane close "$pid" >/dev/null 2>&1 || true; pid="" ;; esac   # pre-popup marks held a bridge pane id
-    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    if [ -n "$pid" ] && alive; then
       kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true   # buzz-acp finishes in-flight turns
       for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
       kill -KILL -- "-$pid" 2>/dev/null || true
@@ -69,7 +76,7 @@ print(hits[0]["channel_id"] if hits else "")' "$name")
   flags=$(cat "$cfg/herdr-buzz.flags" 2>/dev/null || true)          # e.g. --respond-to owner-only
   # shellcheck disable=SC2086
   setsid bash -c "exec \"$here/bin/herdr-buzz\" \"$name\" \"$pane\" \"$channel\" $flags" >"$log" 2>&1 < /dev/null &
-  echo $! > "$mark"; printf 'agent: %s\nchannel: %s\n' "$name" "$channel" > "$info"
+  echo $! > "$mark"; started $! >> "$mark"; printf 'agent: %s\nchannel: %s\n' "$name" "$channel" > "$info"
   herdr pane report-metadata "$pane" --source herdr-buzz --token "buzz=⇄ #$name" >/dev/null 2>&1 || true   # sidebar row: $buzz
   echo "attached to #$name"
   ;;

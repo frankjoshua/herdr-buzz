@@ -44,7 +44,13 @@
   closing `w42:p3` in presage would stop default's `w42:p3` bridge, and attach in one session refused
   because of the other's (no collision had happened yet). `lib/state.sh` puts a named session
   (`HERDR_SESSION`) in `sessions/<name>/`; the default session has no `HERDR_SESSION` and stays at the
-  top, so its records did not move. Ship only after supervisors use `bridge status` instead of the files.
+  top, so its records did not move. Shipped after rostr read only `bridge status`; presage's live
+  `w33_p1` was hardlinked into `sessions/presage/` before the switch and unlinked after, so no reader
+  ever saw it missing (a missing record reads as `detached`, which a supervisor takes as a hand stop).
+- **The mark records the bridge's start time** (2026-10-09). `alive` was `kill -0` on the pid, so
+  after a reboot a reused pid read as attached and `detach` would TERM/KILL that unrelated process
+  group. Line 2 of the mark is `ps -o lstart=` at attach; a mismatch reads as `died`. A record
+  lookup that fails (other session, closed workspace) no longer makes `status` exit non-zero.
 
 ## Buzz UI facts (learned the hard way)
 - "View activity" (owner-only tool-call/thought transcript) only appears on members whose channel
