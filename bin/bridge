@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # The bridge engine, one pane at a time. No visible pane: buzz-acp runs in the background with
-# its log in the plugin state dir. Used by bin/menu (the prefix+y popup) and bin/on-pane-closed.
+# its log in the plugin state dir. Used by bin/menu (the prefix+y popup), bin/on-pane-closed, and
+# any supervisor: `status` is the interface, the files in the state dir are not.
 #   bridge attach|detach|delete|status|log <pane-id>
 set -euo pipefail
 here=$(cd "$(dirname "$0")/.." && pwd)
 cmd=${1:?attach|detach|delete|status|log}; pane=${2:?pane id}
 state=${HERDR_PLUGIN_STATE_DIR:-$HOME/.local/state/herdr/plugins/herdr-buzz}; mkdir -p "$state"
-key=${pane//:/_}; mark="$state/$key"; log="$state/$key.log"
+key=${pane//:/_}; mark="$state/$key"; info="$state/$key.info"; log="$state/$key.log"
 cfg="$HOME/.config/buzz-acp"
 
-# Agent/channel name: BUZZ_AGENT_NAME when the caller pins the identity
-# (rostr-node sets it from the agent's buzz channel), else the workspace label.
+# Agent/channel name: BUZZ_AGENT_NAME when the caller pins the identity, else the workspace label.
 agent_name() {
   [ -n "${BUZZ_AGENT_NAME:-}" ] && { echo "$BUZZ_AGENT_NAME"; return; }
   local ws=${pane%%:*} label
@@ -23,9 +23,12 @@ alive() { [ -f "$mark" ] && kill -0 "$(cat "$mark")" 2>/dev/null; }
 
 case "$cmd" in
 status)
-  name=$(agent_name)
-  if alive; then echo "attached"; else echo "detached"; fi
-  echo "agent: $name"; echo "channel: $(env_val "$name" BUZZ_CHANNEL)"; echo "log: $log"
+  # line 1: attached | died (record left, process gone: crash, kill, reboot) | detached (never
+  # attached, or `bridge detach`). Then agent/channel: what attach started, else what it would use.
+  if alive; then echo "attached"; elif [ -f "$mark" ]; then echo "died"; else echo "detached"; fi
+  if [ -f "$mark" ] && [ -f "$info" ]; then cat "$info"
+  else name=$(agent_name); echo "agent: $name"; echo "channel: $(env_val "$name" BUZZ_CHANNEL)"; fi
+  echo "log: $log"
   ;;
 log) echo "$log" ;;
 detach)
@@ -37,7 +40,7 @@ detach)
       for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
       kill -KILL -- "-$pid" 2>/dev/null || true
     fi
-    rm -f "$mark"
+    rm -f "$mark" "$info"
   fi
   herdr pane report-metadata "$pane" --source herdr-buzz --clear-token buzz >/dev/null 2>&1 || true
   echo "detached"
@@ -66,7 +69,7 @@ print(hits[0]["channel_id"] if hits else "")' "$name")
   flags=$(cat "$cfg/herdr-buzz.flags" 2>/dev/null || true)          # e.g. --respond-to owner-only
   # shellcheck disable=SC2086
   setsid bash -c "exec \"$here/bin/herdr-buzz\" \"$name\" \"$pane\" \"$channel\" $flags" >"$log" 2>&1 < /dev/null &
-  echo $! > "$mark"
+  echo $! > "$mark"; printf 'agent: %s\nchannel: %s\n' "$name" "$channel" > "$info"
   herdr pane report-metadata "$pane" --source herdr-buzz --token "buzz=⇄ #$name" >/dev/null 2>&1 || true   # sidebar row: $buzz
   echo "attached to #$name"
   ;;

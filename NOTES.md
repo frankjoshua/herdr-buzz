@@ -34,6 +34,11 @@
   placement `popup`) for the focused pane with status, log tail and controls; the action relays the
   focused pane id through `menu.target` because a plugin pane gets no target pane of its own.
   A `pane.closed` event detaches. The sidebar decoration was dropped: it did not render for Josh.
+- **`bridge status` is the only interface** (2026-10-09). herdr-buzz and rostr must each run without
+  the other; rostr read the pid files and the bridge's cmdline, so moving a file could make it think a
+  channel was detached by hand and remove it. `status` now says `died` (record left, process gone)
+  apart from `detached` (never attached, or `bridge detach`), and reports the agent/channel attach
+  actually started (`<pane>.info`), so a supervisor needs nothing else.
 
 ## Buzz UI facts (learned the hard way)
 - "View activity" (owner-only tool-call/thought transcript) only appears on members whose channel
